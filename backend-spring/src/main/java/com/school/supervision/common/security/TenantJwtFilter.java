@@ -1,6 +1,7 @@
 package com.school.supervision.common.security;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -31,16 +32,20 @@ public class TenantJwtFilter extends OncePerRequestFilter {
         try {
             if (authHeader != null && authHeader.startsWith("Bearer ")) {
                 String token = authHeader.substring(7);
-                Claims claims = jwtService.parse(token);
-                String username = claims.getSubject();
-                String orgId = claims.get("organization_id", String.class);
-                setTenantOrganizationId(UUID.fromString(orgId));
-                UsernamePasswordAuthenticationToken authentication =
-                        new UsernamePasswordAuthenticationToken(
-                                username,
-                                null,
-                                List.of(new SimpleGrantedAuthority("ROLE_USER")));
-                SecurityContextHolder.getContext().setAuthentication(authentication);
+                try {
+                    Claims claims = jwtService.parse(token);
+                    String username = claims.getSubject();
+                    String orgId = claims.get("organization_id", String.class);
+                    setTenantOrganizationId(UUID.fromString(orgId));
+                    UsernamePasswordAuthenticationToken authentication =
+                            new UsernamePasswordAuthenticationToken(
+                                    username,
+                                    null,
+                                    List.of(new SimpleGrantedAuthority("ROLE_USER")));
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                } catch (JwtException | IllegalArgumentException ignored) {
+                    // Expired, malformed, or wrong signature — continue unauthenticated; secured routes return 401/403.
+                }
             }
             filterChain.doFilter(request, response);
         } finally {

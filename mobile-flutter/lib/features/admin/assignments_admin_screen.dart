@@ -26,6 +26,7 @@ class _AssignmentsAdminScreenState extends State<AssignmentsAdminScreen> {
   String _targetType = 'SCHOOL';
   String _schoolId = '';
   String _teacherId = '';
+  String _staffUserId = '';
   String _dueLocal = '';
   String? _editingId;
 

@@ -23,6 +23,7 @@ public class ReviewService {
     private final ReviewRepository reviewRepository;
     private final AssignmentRepository assignmentRepository;
     private final SchoolRepository schoolRepository;
+    private final TeacherRepository teacherRepository;
     private final ChecklistService checklistService;
     private final GeoValidationService geoValidationService;
     private final ReviewAnswerRepository reviewAnswerRepository;

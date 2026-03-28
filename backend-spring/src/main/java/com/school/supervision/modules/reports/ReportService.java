@@ -102,6 +102,12 @@ public class ReportService {
                     .map(Teacher::getName)
                     .orElse(null);
         }
+        String staffName = null;
+        if (assignment.getStaffUserId() != null) {
+            staffName = userRepository.findByIdAndOrganizationId(assignment.getStaffUserId(), orgId)
+                    .map(User::getFullName)
+                    .orElse(null);
+        }
         String checklistTitle = checklistRepository.findByIdAndOrganizationId(assignment.getChecklistId(), orgId)
                 .map(Checklist::getTitle)
                 .orElse("—");
@@ -120,6 +126,8 @@ public class ReportService {
                 schoolName,
                 assignment.getTeacherId(),
                 teacherName,
+                assignment.getStaffUserId(),
+                staffName,
                 assignment.getChecklistId(),
                 checklistTitle,
                 loc,

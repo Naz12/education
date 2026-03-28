@@ -137,7 +137,8 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
         targetType: _newTarget,
         purpose: _newPurpose,
         gradeGroupId: _newGradeGroupId,
-        autoAssignOnPublish: _newTarget == 'SCHOOL' ? _newAutoAssignOnPublish : true,
+        autoAssignOnPublish:
+            (_newTarget == 'SCHOOL' || _newTarget == 'DIRECTOR') ? _newAutoAssignOnPublish : false,
       );
       _newTitle.clear();
       setState(() => _newAutoAssignOnPublish = true);
@@ -200,9 +201,11 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Auto-assign on publish'),
-                  subtitle: const Text('School target only'),
-                  value: target == 'SCHOOL' && autoAssign,
-                  onChanged: target == 'SCHOOL' ? (v) => setD(() => autoAssign = v) : null,
+                  subtitle: const Text('School or director target'),
+                  value: (target == 'SCHOOL' || target == 'DIRECTOR') && autoAssign,
+                  onChanged: (target == 'SCHOOL' || target == 'DIRECTOR')
+                      ? (v) => setD(() => autoAssign = v)
+                      : null,
                 ),
               ],
             ),
@@ -218,7 +221,8 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
                     targetType: target,
                     purpose: purpose,
                     gradeGroupId: gg,
-                    autoAssignOnPublish: target == 'SCHOOL' ? autoAssign : true,
+                    autoAssignOnPublish:
+                        (target == 'SCHOOL' || target == 'DIRECTOR') ? autoAssign : false,
                   );
                   if (ctx.mounted) Navigator.pop(ctx);
                   await _load();
@@ -309,6 +313,8 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
                                 items: const [
                                   DropdownMenuItem(value: 'SCHOOL', child: Text('School')),
                                   DropdownMenuItem(value: 'TEACHER', child: Text('Teacher')),
+                                  DropdownMenuItem(value: 'DIRECTOR', child: Text('Director')),
+                                  DropdownMenuItem(value: 'SCHOOL_STAFF', child: Text('School staff')),
                                 ],
                                 onChanged: (v) => setState(() => _newTarget = v ?? 'SCHOOL'),
                               ),
@@ -356,7 +362,7 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
                         final id = m['id']?.toString() ?? '';
                         final disabled = m['activeVersion'] == null;
                         final target = m['targetType']?.toString() ?? '';
-                        final autoLine = target == 'SCHOOL'
+                        final autoLine = (target == 'SCHOOL' || target == 'DIRECTOR')
                             ? (m['autoAssignOnPublish'] != false ? 'Auto-assign: on' : 'Auto-assign: off')
                             : 'Auto-assign: —';
                         final gradesLine = _checklistGradesSummary(m);

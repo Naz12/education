@@ -440,7 +440,12 @@ class ApiClient {
     return response.data as List<dynamic>;
   }
 
-  // --- Reports (authenticated PDF bytes) ---
+  // --- Reports ---
+
+  static Future<List<dynamic>> fetchSubmittedReports() async {
+    final response = await _dio.get('/reports/submitted-reviews', options: _authOptions());
+    return response.data as List<dynamic>;
+  }
 
   static Future<List<int>> downloadReviewPdfBytes(String reviewId) async {
     final response = await _dio.get<List<int>>(

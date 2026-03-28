@@ -57,6 +57,7 @@ public class AssignmentController {
             @NotNull TargetType targetType,
             UUID schoolId,
             UUID teacherId,
+            UUID staffUserId,
             Instant dueDate
     ) {}
 
@@ -67,8 +68,11 @@ public class AssignmentController {
             @NotNull TargetType targetType,
             UUID schoolId,
             UUID teacherId,
+            UUID staffUserId,
             Instant dueDate
     ) {}
+
+    private record ResolvedTargets(UUID schoolId, UUID teacherId, UUID staffUserId) {}
 
     @GetMapping
     public List<Assignment> list(Authentication authentication) {
@@ -84,37 +88,25 @@ public class AssignmentController {
     public UUID create(Authentication authentication, @Valid @RequestBody CreateAssignmentRequest request) {
         User currentUser = requireCurrentUser(authentication);
         requireAdminOrCoordinator(currentUser);
-        if (request.targetType() == TargetType.SCHOOL && request.schoolId() == null) {
-            throw new IllegalArgumentException("schoolId is required for SCHOOL target assignments");
-        }
-        if (request.targetType() == TargetType.TEACHER && request.teacherId() == null) {
-            throw new IllegalArgumentException("teacherId is required for TEACHER target assignments");
-        }
+        UUID orgId = requireTenant();
         if (!isSuperAdmin(currentUser)) {
-            User supervisor = userRepository.findByIdAndOrganizationId(request.supervisorId(), requireTenant())
+            User supervisor = userRepository.findByIdAndOrganizationId(request.supervisorId(), orgId)
                     .orElseThrow(() -> new IllegalArgumentException("Supervisor not found"));
             if (!currentUser.getId().equals(supervisor.getCoordinatorUserId())) {
                 throw new IllegalArgumentException("Supervisor is outside coordinator scope");
             }
-            if (request.targetType() == TargetType.SCHOOL) {
-                schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(request.schoolId(), requireTenant(), currentUser.getId())
-                        .orElseThrow(() -> new IllegalArgumentException("School is outside coordinator scope"));
-            }
-            if (request.targetType() == TargetType.TEACHER) {
-                Teacher teacher = teacherRepository.findByIdAndOrganizationId(request.teacherId(), requireTenant())
-                        .orElseThrow(() -> new IllegalArgumentException("Teacher not found"));
-                schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(teacher.getSchoolId(), requireTenant(), currentUser.getId())
-                        .orElseThrow(() -> new IllegalArgumentException("Teacher is outside coordinator scope"));
-            }
         }
+        ResolvedTargets targets = validateAndResolveTargets(
+                request.targetType(), request.schoolId(), request.teacherId(), request.staffUserId(), orgId, currentUser);
         Assignment assignment = new Assignment();
-        assignment.setOrganizationId(requireTenant());
+        assignment.setOrganizationId(orgId);
         assignment.setChecklistId(request.checklistId());
         assignment.setChecklistVersionId(request.checklistVersionId());
         assignment.setSupervisorId(request.supervisorId());
         assignment.setTargetType(request.targetType());
-        assignment.setSchoolId(request.schoolId());
-        assignment.setTeacherId(request.teacherId());
+        assignment.setSchoolId(targets.schoolId());
+        assignment.setTeacherId(targets.teacherId());
+        assignment.setStaffUserId(targets.staffUserId());
         assignment.setDueDate(request.dueDate());
         assignment.setStatus(AssignmentStatus.PENDING);
         assignment.setCreatedBy(currentUser.getId());
@@ -149,39 +141,24 @@ public class AssignmentController {
             throw new IllegalArgumentException("Only PENDING assignments can be edited");
         }
 
-        // Validate target fields.
-        if (request.targetType() == TargetType.SCHOOL && request.schoolId() == null) {
-            throw new IllegalArgumentException("schoolId is required for SCHOOL target assignments");
-        }
-        if (request.targetType() == TargetType.TEACHER && request.teacherId() == null) {
-            throw new IllegalArgumentException("teacherId is required for TEACHER target assignments");
-        }
-
-        // Coordinator-scoped validation: supervisor scope + target scope.
+        UUID orgId = requireTenant();
         if (!isSuperAdmin(currentUser)) {
-            User supervisor = userRepository.findByIdAndOrganizationId(request.supervisorId(), requireTenant())
+            User supervisor = userRepository.findByIdAndOrganizationId(request.supervisorId(), orgId)
                     .orElseThrow(() -> new IllegalArgumentException("Supervisor not found"));
             if (!currentUser.getId().equals(supervisor.getCoordinatorUserId())) {
                 throw new IllegalArgumentException("Supervisor is outside coordinator scope");
             }
-            if (request.targetType() == TargetType.SCHOOL) {
-                schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(request.schoolId(), requireTenant(), currentUser.getId())
-                        .orElseThrow(() -> new IllegalArgumentException("School is outside coordinator scope"));
-            }
-            if (request.targetType() == TargetType.TEACHER) {
-                Teacher teacher = teacherRepository.findByIdAndOrganizationId(request.teacherId(), requireTenant())
-                        .orElseThrow(() -> new IllegalArgumentException("Teacher not found"));
-                schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(teacher.getSchoolId(), requireTenant(), currentUser.getId())
-                        .orElseThrow(() -> new IllegalArgumentException("Teacher is outside coordinator scope"));
-            }
         }
+        ResolvedTargets targets = validateAndResolveTargets(
+                request.targetType(), request.schoolId(), request.teacherId(), request.staffUserId(), orgId, currentUser);
 
         assignment.setChecklistId(request.checklistId());
         assignment.setChecklistVersionId(request.checklistVersionId());
         assignment.setSupervisorId(request.supervisorId());
         assignment.setTargetType(request.targetType());
-        assignment.setSchoolId(request.targetType() == TargetType.SCHOOL ? request.schoolId() : null);
-        assignment.setTeacherId(request.targetType() == TargetType.TEACHER ? request.teacherId() : null);
+        assignment.setSchoolId(targets.schoolId());
+        assignment.setTeacherId(targets.teacherId());
+        assignment.setStaffUserId(targets.staffUserId());
         assignment.setDueDate(request.dueDate());
         assignmentRepository.save(assignment);
 
@@ -297,5 +274,64 @@ public class AssignmentController {
 
     private boolean isSuperAdmin(User user) {
         return user.getRoles().stream().anyMatch(r -> "SUPER_ADMIN".equals(r.getName()));
+    }
+
+    private ResolvedTargets validateAndResolveTargets(
+            TargetType targetType,
+            UUID schoolId,
+            UUID teacherId,
+            UUID staffUserId,
+            UUID orgId,
+            User currentUser) {
+        boolean superAdmin = isSuperAdmin(currentUser);
+        return switch (targetType) {
+            case SCHOOL -> {
+                if (schoolId == null) {
+                    throw new IllegalArgumentException("schoolId is required for SCHOOL target assignments");
+                }
+                if (!superAdmin) {
+                    schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(schoolId, orgId, currentUser.getId())
+                            .orElseThrow(() -> new IllegalArgumentException("School is outside coordinator scope"));
+                }
+                yield new ResolvedTargets(schoolId, null, null);
+            }
+            case TEACHER -> {
+                if (teacherId == null) {
+                    throw new IllegalArgumentException("teacherId is required for TEACHER target assignments");
+                }
+                Teacher teacher = teacherRepository.findByIdAndOrganizationId(teacherId, orgId)
+                        .orElseThrow(() -> new IllegalArgumentException("Teacher not found"));
+                if (!superAdmin) {
+                    schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(teacher.getSchoolId(), orgId, currentUser.getId())
+                            .orElseThrow(() -> new IllegalArgumentException("Teacher is outside coordinator scope"));
+                }
+                yield new ResolvedTargets(teacher.getSchoolId(), teacherId, null);
+            }
+            case DIRECTOR -> {
+                if (schoolId == null) {
+                    throw new IllegalArgumentException("schoolId is required for DIRECTOR target assignments");
+                }
+                if (!superAdmin) {
+                    schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(schoolId, orgId, currentUser.getId())
+                            .orElseThrow(() -> new IllegalArgumentException("School is outside coordinator scope"));
+                }
+                yield new ResolvedTargets(schoolId, null, null);
+            }
+            case SCHOOL_STAFF -> {
+                if (schoolId == null) {
+                    throw new IllegalArgumentException("schoolId is required for SCHOOL_STAFF target assignments");
+                }
+                if (staffUserId == null) {
+                    throw new IllegalArgumentException("staffUserId is required for SCHOOL_STAFF target assignments");
+                }
+                userRepository.findByIdAndOrganizationId(staffUserId, orgId)
+                        .orElseThrow(() -> new IllegalArgumentException("Staff user not found"));
+                if (!superAdmin) {
+                    schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(schoolId, orgId, currentUser.getId())
+                            .orElseThrow(() -> new IllegalArgumentException("School is outside coordinator scope"));
+                }
+                yield new ResolvedTargets(schoolId, null, staffUserId);
+            }
+        };
     }
 }

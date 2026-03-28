@@ -16,6 +16,7 @@ class _AssignmentsAdminScreenState extends State<AssignmentsAdminScreen> {
   List<dynamic> _supervisors = [];
   List<dynamic> _schools = [];
   List<dynamic> _teachers = [];
+  List<dynamic> _schoolStuff = [];
   bool _loading = true;
   String? _error;
 
@@ -60,7 +61,11 @@ class _AssignmentsAdminScreenState extends State<AssignmentsAdminScreen> {
     _supervisors = await ApiClient.fetchSupervisorsDirectory();
     _schools = await ApiClient.fetchSchools();
     _teachers = await ApiClient.fetchTeachers();
+    _schoolStuff = await ApiClient.fetchSchoolStuffItems();
   }
+
+  bool _assignmentNeedsSchool(String t) =>
+      t == 'SCHOOL' || t == 'DIRECTOR' || t == 'SCHOOL_STAFF';
 
   Future<void> _loadVersions(String checklistId) async {
     if (checklistId.isEmpty) {
@@ -84,6 +89,7 @@ class _AssignmentsAdminScreenState extends State<AssignmentsAdminScreen> {
       _targetType = 'SCHOOL';
       _schoolId = '';
       _teacherId = '';
+      _staffUserId = '';
       _dueLocal = '';
     } else {
       _editingId = row['id']?.toString();
@@ -93,6 +99,7 @@ class _AssignmentsAdminScreenState extends State<AssignmentsAdminScreen> {
       _targetType = row['targetType']?.toString() ?? 'SCHOOL';
       _schoolId = row['schoolId']?.toString() ?? '';
       _teacherId = row['teacherId']?.toString() ?? '';
+      _staffUserId = row['staffUserId']?.toString() ?? '';
       final due = row['dueDate']?.toString();
       _dueLocal = _toLocalDatetime(due);
     }
@@ -172,14 +179,17 @@ class _AssignmentsAdminScreenState extends State<AssignmentsAdminScreen> {
                     items: const [
                       DropdownMenuItem(value: 'SCHOOL', child: Text('School')),
                       DropdownMenuItem(value: 'TEACHER', child: Text('Teacher')),
+                      DropdownMenuItem(value: 'DIRECTOR', child: Text('Director')),
+                      DropdownMenuItem(value: 'SCHOOL_STAFF', child: Text('School staff')),
                     ],
                     onChanged: (v) => setModal(() {
                       _targetType = v ?? 'SCHOOL';
-                      if (_targetType != 'SCHOOL') _schoolId = '';
+                      if (!_assignmentNeedsSchool(_targetType)) _schoolId = '';
                       if (_targetType != 'TEACHER') _teacherId = '';
+                      if (_targetType != 'SCHOOL_STAFF') _staffUserId = '';
                     }),
                   ),
-                  if (_targetType == 'SCHOOL')
+                  if (_assignmentNeedsSchool(_targetType))
                     DropdownButtonFormField<String>(
                       initialValue: _schoolId.isEmpty ? null : _schoolId,
                       decoration: const InputDecoration(labelText: 'School'),
@@ -220,6 +230,26 @@ class _AssignmentsAdminScreenState extends State<AssignmentsAdminScreen> {
                           .toList(),
                       onChanged: (v) => setModal(() => _teacherId = v ?? ''),
                     ),
+                  if (_targetType == 'SCHOOL_STAFF')
+                    DropdownButtonFormField<String>(
+                      initialValue: _staffUserId.isEmpty ? null : _staffUserId,
+                      decoration: const InputDecoration(labelText: 'Staff member'),
+                      items: _schoolStuff
+                          .where((x) {
+                            final m = x as Map<String, dynamic>;
+                            final ty = m['type']?.toString() ?? '';
+                            return ty.isNotEmpty && ty != 'TEACHER';
+                          })
+                          .map((x) {
+                            final m = x as Map<String, dynamic>;
+                            final id = m['id']?.toString() ?? '';
+                            final name = m['fullName']?.toString() ?? '';
+                            final ty = m['type']?.toString() ?? '';
+                            return DropdownMenuItem(value: id, child: Text('$name ($ty)'));
+                          })
+                          .toList(),
+                      onChanged: (v) => setModal(() => _staffUserId = v ?? ''),
+                    ),
                   TextFormField(
                     decoration: const InputDecoration(labelText: 'Due (datetime-local)'),
                     controller: dueCtrl,
@@ -228,15 +258,17 @@ class _AssignmentsAdminScreenState extends State<AssignmentsAdminScreen> {
                   FilledButton(
                     onPressed: () async {
                       if (_formChecklistId.isEmpty || _formVersionId.isEmpty || _formSupervisorId.isEmpty) return;
-                      if (_targetType == 'SCHOOL' && _schoolId.isEmpty) return;
+                      if (_assignmentNeedsSchool(_targetType) && _schoolId.isEmpty) return;
                       if (_targetType == 'TEACHER' && _teacherId.isEmpty) return;
+                      if (_targetType == 'SCHOOL_STAFF' && _staffUserId.isEmpty) return;
                       final payload = <String, dynamic>{
                         'checklistId': _formChecklistId,
                         'checklistVersionId': _formVersionId,
                         'supervisorId': _formSupervisorId,
                         'targetType': _targetType,
-                        'schoolId': _targetType == 'SCHOOL' ? _schoolId : null,
+                        'schoolId': _assignmentNeedsSchool(_targetType) ? _schoolId : null,
                         'teacherId': _targetType == 'TEACHER' ? _teacherId : null,
+                        'staffUserId': _targetType == 'SCHOOL_STAFF' ? _staffUserId : null,
                         'dueDate': dueCtrl.text.trim().isEmpty
                             ? null
                             : DateTime.tryParse(dueCtrl.text.trim())?.toUtc().toIso8601String(),

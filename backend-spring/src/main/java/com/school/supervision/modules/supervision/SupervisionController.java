@@ -73,6 +73,8 @@ public class SupervisionController {
             String schoolName,
             UUID teacherId,
             String teacherName,
+            UUID staffUserId,
+            String staffFullName,
             UUID checklistId,
             String checklistTitle,
             String locationStatus,
@@ -150,6 +152,12 @@ public class SupervisionController {
                     .map(Teacher::getName)
                     .orElse(null);
         }
+        String staffFullName = null;
+        if (assignment.getStaffUserId() != null) {
+            staffFullName = userRepository.findByIdAndOrganizationId(assignment.getStaffUserId(), orgId)
+                    .map(User::getFullName)
+                    .orElse(null);
+        }
         String checklistTitle = checklistRepository.findByIdAndOrganizationId(assignment.getChecklistId(), orgId)
                 .map(Checklist::getTitle)
                 .orElse("—");
@@ -164,6 +172,8 @@ public class SupervisionController {
                 schoolName,
                 assignment.getTeacherId(),
                 teacherName,
+                assignment.getStaffUserId(),
+                staffFullName,
                 assignment.getChecklistId(),
                 checklistTitle,
                 loc,

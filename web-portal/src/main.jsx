@@ -9,6 +9,12 @@ const API_BASE =
 /** Canonical grade codes (must match backend GradeCodes.ORDERED). */
 const CANONICAL_GRADE_CODES = ["KG1", "KG2", "KG3", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
 
+/** Checklist targets that support auto-assign on publish (per matching school). */
+const CHECKLIST_AUTO_ASSIGN_TARGETS = new Set(["SCHOOL", "DIRECTOR"]);
+
+/** Assignment targets that require a school for geo and routing. */
+const ASSIGNMENT_SCHOOL_TARGETS = new Set(["SCHOOL", "DIRECTOR", "SCHOOL_STAFF"]);
+
 function GradeCodeCheckboxes({ label, value, onChange, disabled }) {
   const set = new Set(value || []);
   const toggle = (code) => {
@@ -2125,12 +2131,12 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
     const res = await fetch(`${API_BASE}/checklists`, {
       method: "POST",
       headers: jsonHeaders(headers),
-      body: JSON.stringify({
+        body: JSON.stringify({
         title,
         targetType,
         purpose,
         gradeGroupId,
-        autoAssignOnPublish: Boolean(autoAssignOnPublish)
+        autoAssignOnPublish: CHECKLIST_AUTO_ASSIGN_TARGETS.has(targetType) && Boolean(autoAssignOnPublish)
       })
     });
     if (!res.ok) {
@@ -2212,8 +2218,10 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
           <Input placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} required />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <select value={targetType} onChange={(e) => setTargetType(e.target.value)} style={{ padding: 10, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font }}>
-              <option value="SCHOOL">School target</option>
-              <option value="TEACHER">Teacher target</option>
+              <option value="SCHOOL">School (facility / whole school)</option>
+              <option value="TEACHER">Teacher (classroom)</option>
+              <option value="DIRECTOR">School director</option>
+              <option value="SCHOOL_STAFF">Other school staff (user)</option>
             </select>
             <select value={purpose} onChange={(e) => setPurpose(e.target.value)} style={{ padding: 10, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font }}>
               <option value="CLINICAL_SUPERVISION">Clinical</option>
@@ -2233,9 +2241,9 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
               type="checkbox"
               checked={autoAssignOnPublish}
               onChange={(e) => setAutoAssignOnPublish(e.target.checked)}
-              disabled={targetType !== "SCHOOL"}
+              disabled={!CHECKLIST_AUTO_ASSIGN_TARGETS.has(targetType)}
             />
-            Auto-assign supervisors to matching schools when this checklist is published (school target only)
+            Auto-assign supervisors to matching schools when this checklist is published (school or director target)
           </label>
           <PrimaryButton type="submit">Create checklist</PrimaryButton>
         </form>
@@ -2682,7 +2690,7 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
             return row.gradeGroupDisplayName || row.gradesDescription || "—";
           }
           if (key === "auto") {
-            if (row.targetType !== "SCHOOL") return "—";
+            if (!CHECKLIST_AUTO_ASSIGN_TARGETS.has(row.targetType)) return "—";
             return row.autoAssignOnPublish !== false ? "On" : "Off";
           }
           if (key === "ver") return row.activeVersion == null ? "Disabled" : `v${row.activeVersion}`;
@@ -2883,6 +2891,8 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
               >
                 <option value="SCHOOL">School</option>
                 <option value="TEACHER">Teacher</option>
+                <option value="DIRECTOR">Director</option>
+                <option value="SCHOOL_STAFF">School staff</option>
               </select>
             </div>
             <div>
@@ -2918,9 +2928,9 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
               type="checkbox"
               checked={Boolean(editForm.autoAssignOnPublish)}
               onChange={(e) => setEditForm((p) => ({ ...p, autoAssignOnPublish: e.target.checked }))}
-              disabled={editForm.targetType !== "SCHOOL"}
+              disabled={!CHECKLIST_AUTO_ASSIGN_TARGETS.has(editForm.targetType)}
             />
-            Auto-assign on publish (school target only)
+            Auto-assign on publish (school or director target)
           </label>
           <PrimaryButton type="submit" disabled={editBusy}>
             {editBusy ? "Saving…" : "Save changes"}
@@ -3779,6 +3789,7 @@ function AssignmentsPage({ headers }) {
     targetType: "SCHOOL",
     schoolId: "",
     teacherId: "",
+    staffUserId: "",
     dueDate: ""
   });
 
@@ -3791,6 +3802,7 @@ function AssignmentsPage({ headers }) {
     fetch(`${API_BASE}/users/supervisors`, { headers }).then((r) => r.json()).then(setSupervisors);
     fetch(`${API_BASE}/schools`, { headers }).then((r) => r.json()).then(setSchools);
     fetch(`${API_BASE}/teachers`, { headers }).then((r) => r.json()).then(setTeachers);
+    fetch(`${API_BASE}/school-stuff`, { headers }).then((r) => r.json()).then(setSchoolStuff);
   }, [headers]);
   useEffect(() => {
     if (!form.checklistId) return;
@@ -3843,8 +3855,9 @@ function AssignmentsPage({ headers }) {
         checklistVersionId: form.checklistVersionId,
         supervisorId: form.supervisorId,
         targetType: form.targetType,
-        schoolId: form.targetType === "SCHOOL" ? form.schoolId : null,
+        schoolId: ASSIGNMENT_SCHOOL_TARGETS.has(form.targetType) ? form.schoolId : null,
         teacherId: form.targetType === "TEACHER" ? form.teacherId : null,
+        staffUserId: form.targetType === "SCHOOL_STAFF" ? form.staffUserId : null,
         dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : null
       };
 
@@ -3980,16 +3993,19 @@ function AssignmentsPage({ headers }) {
               setForm((p) => ({
                 ...p,
                 targetType: next,
-                schoolId: next === "SCHOOL" ? p.schoolId : "",
-                teacherId: next === "TEACHER" ? p.teacherId : ""
+                schoolId: ASSIGNMENT_SCHOOL_TARGETS.has(next) ? p.schoolId : "",
+                teacherId: next === "TEACHER" ? p.teacherId : "",
+                staffUserId: next === "SCHOOL_STAFF" ? p.staffUserId : ""
               }));
             }}
             style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}` }}
           >
             <option value="SCHOOL">School</option>
             <option value="TEACHER">Teacher</option>
+            <option value="DIRECTOR">Director (by school)</option>
+            <option value="SCHOOL_STAFF">School staff (user)</option>
           </select>
-          {form.targetType === "SCHOOL" && (
+          {ASSIGNMENT_SCHOOL_TARGETS.has(form.targetType) && (
             <select
               required
               value={form.schoolId}
@@ -4013,6 +4029,23 @@ function AssignmentsPage({ headers }) {
               {teachers.map((t) => (
                 <option key={t.id} value={t.id}>{t.name} · {t.subject}{t.schoolName ? ` · ${t.schoolName}` : ""}</option>
               ))}
+            </select>
+          )}
+          {form.targetType === "SCHOOL_STAFF" && (
+            <select
+              required
+              value={form.staffUserId}
+              onChange={(e) => setForm((p) => ({ ...p, staffUserId: e.target.value }))}
+              style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}` }}
+            >
+              <option value="">Staff member…</option>
+              {schoolStuff
+                .filter((s) => s.type && s.type !== "TEACHER")
+                .map((s) => (
+                  <option key={`${s.type}-${s.id}`} value={s.id}>
+                    {s.fullName} ({s.type})
+                  </option>
+                ))}
             </select>
           )}
           <Input type="datetime-local" value={form.dueDate} onChange={(e) => setForm((p) => ({ ...p, dueDate: e.target.value }))} />
@@ -4111,6 +4144,8 @@ function SupervisionActivityPage({ headers }) {
               <li key={v.reviewId} style={{ marginBottom: 12 }}>
                 <strong>{v.checklistTitle}</strong> · {v.targetType}
                 {v.schoolName ? ` · ${v.schoolName}` : ""}
+                {v.targetType === "TEACHER" && v.teacherName ? ` · ${v.teacherName}` : ""}
+                {v.targetType === "SCHOOL_STAFF" && v.staffFullName ? ` · ${v.staffFullName}` : ""}
                 <div style={{ fontSize: 12, color: t.muted, marginTop: 4 }}>
                   {v.completedAt} · {v.locationStatus || "—"}
                   {v.distanceFromSchoolMeters != null ? ` · ${Math.round(v.distanceFromSchoolMeters)} m` : ""}
@@ -4256,6 +4291,7 @@ function ReportsPage({ headers }) {
             if (key === "target") return row.targetType || "—";
             if (key === "place") {
               if (row.targetType === "TEACHER" && row.teacherName) return row.teacherName;
+              if (row.targetType === "SCHOOL_STAFF" && row.staffFullName) return row.staffFullName;
               if (row.schoolName) return row.schoolName;
               return "—";
             }

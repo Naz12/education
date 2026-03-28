@@ -54,7 +54,7 @@ public class AssignmentAutoAssignmentService {
         if (!checklist.isAutoAssignOnPublish()) {
             return 0;
         }
-        if (checklist.getTargetType() != TargetType.SCHOOL) {
+        if (checklist.getTargetType() != TargetType.SCHOOL && checklist.getTargetType() != TargetType.DIRECTOR) {
             return 0;
         }
         if (checklist.getGradeGroupId() == null) {
@@ -98,9 +98,10 @@ public class AssignmentAutoAssignmentService {
             a.setChecklistId(checklist.getId());
             a.setChecklistVersionId(publishedVersionId);
             a.setSupervisorId(supervisor.getId());
-            a.setTargetType(TargetType.SCHOOL);
+            a.setTargetType(checklist.getTargetType());
             a.setSchoolId(school.getId());
             a.setTeacherId(null);
+            a.setStaffUserId(null);
             a.setDueDate(null);
             a.setStatus(AssignmentStatus.PENDING);
             a.setCreatedBy(actorUserId);

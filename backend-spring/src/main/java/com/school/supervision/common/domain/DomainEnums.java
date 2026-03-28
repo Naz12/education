@@ -3,7 +3,8 @@ package com.school.supervision.common.domain;
 public final class DomainEnums {
     private DomainEnums() {}
 
-    public enum TargetType { SCHOOL, TEACHER }
+    /** What the checklist is about; drives assignment fields (school / teacher / staff user). */
+    public enum TargetType { SCHOOL, TEACHER, DIRECTOR, SCHOOL_STAFF }
     public enum DisplayMode { ALL_AT_ONCE, ONE_BY_ONE, GROUPED }
     public enum ChecklistItemType { TEXT, SINGLE_CHOICE, MULTIPLE_CHOICE, YES_NO, RATING, PHOTO }
     public enum ChecklistPurpose { CLINICAL_SUPERVISION, ADMINISTRATIVE_SUPERVISION }

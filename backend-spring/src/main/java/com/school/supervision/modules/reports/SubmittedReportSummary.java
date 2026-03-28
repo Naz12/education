@@ -17,6 +17,8 @@ public record SubmittedReportSummary(
         String schoolName,
         UUID teacherId,
         String teacherName,
+        UUID staffUserId,
+        String staffFullName,
         UUID checklistId,
         String checklistTitle,
         String locationStatus,

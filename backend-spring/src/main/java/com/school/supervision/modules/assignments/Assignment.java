@@ -24,6 +24,9 @@ public class Assignment extends TenantScopedEntity {
     private UUID schoolId;
     @Column(name = "teacher_id")
     private UUID teacherId;
+    /** User id for non-teacher school roles (registrar, counselor, etc.); not used for DIRECTOR (use school only). */
+    @Column(name = "staff_user_id")
+    private UUID staffUserId;
     @Column(name = "due_date")
     private Instant dueDate;
     @Enumerated(EnumType.STRING)
@@ -62,6 +65,14 @@ public class Assignment extends TenantScopedEntity {
 
     public void setTeacherId(UUID teacherId) {
         this.teacherId = teacherId;
+    }
+
+    public UUID getStaffUserId() {
+        return staffUserId;
+    }
+
+    public void setStaffUserId(UUID staffUserId) {
+        this.staffUserId = staffUserId;
     }
 
     public UUID getSupervisorId() {

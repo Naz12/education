@@ -10,6 +10,8 @@ import com.school.supervision.modules.checklists.ChecklistDtos;
 import com.school.supervision.modules.checklists.ChecklistService;
 import com.school.supervision.modules.organization.School;
 import com.school.supervision.modules.organization.SchoolRepository;
+import com.school.supervision.modules.organization.Teacher;
+import com.school.supervision.modules.organization.TeacherRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 
@@ -29,6 +31,7 @@ public class ReviewService {
     public ReviewService(ReviewRepository reviewRepository,
                          AssignmentRepository assignmentRepository,
                          SchoolRepository schoolRepository,
+                         TeacherRepository teacherRepository,
                          ChecklistService checklistService,
                          GeoValidationService geoValidationService,
                          ReviewAnswerRepository reviewAnswerRepository,
@@ -36,6 +39,7 @@ public class ReviewService {
         this.reviewRepository = reviewRepository;
         this.assignmentRepository = assignmentRepository;
         this.schoolRepository = schoolRepository;
+        this.teacherRepository = teacherRepository;
         this.checklistService = checklistService;
         this.geoValidationService = geoValidationService;
         this.reviewAnswerRepository = reviewAnswerRepository;
@@ -93,7 +97,16 @@ public class ReviewService {
             throw new IllegalArgumentException("Answer validation failed: " + validationErrors);
         }
 
-        School school = schoolRepository.findByIdAndOrganizationId(assignment.getSchoolId(), orgId)
+        UUID schoolGeoId = assignment.getSchoolId();
+        if (schoolGeoId == null && assignment.getTeacherId() != null) {
+            schoolGeoId = teacherRepository.findByIdAndOrganizationId(assignment.getTeacherId(), orgId)
+                    .map(Teacher::getSchoolId)
+                    .orElse(null);
+        }
+        if (schoolGeoId == null) {
+            throw new IllegalArgumentException("School not found for assignment geo validation");
+        }
+        School school = schoolRepository.findByIdAndOrganizationId(schoolGeoId, orgId)
                 .orElseThrow(() -> new IllegalArgumentException("School not found"));
         GeoValidationService.ValidationResult geo = geoValidationService.validate(
                 request.latitude(), request.longitude(), school, request.policy());

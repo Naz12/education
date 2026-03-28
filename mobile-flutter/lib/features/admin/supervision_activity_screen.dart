@@ -72,7 +72,9 @@ class _SupervisionActivityScreenState extends State<SupervisionActivityScreen> {
                         return ListTile(
                           title: Text(v['checklistTitle']?.toString() ?? ''),
                           subtitle: Text(
-                            '${v['targetType']} · ${v['schoolName'] ?? ''}\n'
+                            '${v['targetType']} · ${v['schoolName'] ?? ''}'
+                            '${v['targetType'] == 'TEACHER' && v['teacherName'] != null ? ' · ${v['teacherName']}' : ''}'
+                            '${v['targetType'] == 'SCHOOL_STAFF' && v['staffFullName'] != null ? ' · ${v['staffFullName']}' : ''}\n'
                             '${v['completedAt']} · ${v['locationStatus'] ?? ''}',
                           ),
                           isThreeLine: true,

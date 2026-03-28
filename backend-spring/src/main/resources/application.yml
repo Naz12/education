@@ -1,0 +1,33 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/supervision
+    username: postgres
+    password: root1234
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+    open-in-view: false
+  flyway:
+    enabled: true
+
+security:
+  jwt:
+    secret: change-me-to-a-secure-long-key-at-least-32-bytes
+    expiration-seconds: 86400
+
+storage:
+  provider: local
+  local:
+    root-path: uploads
+  s3:
+    endpoint: http://localhost:9000
+    region: us-east-1
+    bucket: school-supervision
+    access-key: minioadmin
+    secret-key: minioadmin

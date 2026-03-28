@@ -1,0 +1,333 @@
+import 'package:flutter/material.dart';
+import '../../core/auth/session_store.dart';
+import '../../core/network/api_client.dart';
+
+class SchoolStuffScreen extends StatefulWidget {
+  const SchoolStuffScreen({super.key});
+
+  @override
+  State<SchoolStuffScreen> createState() => _SchoolStuffScreenState();
+}
+
+class _SchoolStuffScreenState extends State<SchoolStuffScreen> {
+  List<dynamic> _types = [];
+  List<dynamic> _items = [];
+  List<dynamic> _schools = [];
+  String _selectedTypeId = '';
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      _schools = await ApiClient.fetchSchools();
+      _types = await ApiClient.fetchSchoolStuffTypes();
+      _items = await ApiClient.fetchSchoolStuffItems();
+      if (_selectedTypeId.isEmpty && _types.isNotEmpty) {
+        _selectedTypeId = (_types.first as Map)['id'].toString();
+      }
+    } catch (e) {
+      _error = ApiClient.messageFromError(e);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Map<String, dynamic>? get _selectedType {
+    for (final t in _types) {
+      final m = t as Map<String, dynamic>;
+      if (m['id']?.toString() == _selectedTypeId) return m;
+    }
+    return null;
+  }
+
+  Future<void> _addType() async {
+    final name = TextEditingController();
+    final desc = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('New staff type'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: name, decoration: const InputDecoration(labelText: 'Name')),
+            TextField(controller: desc, decoration: const InputDecoration(labelText: 'Description')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Create')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ApiClient.createSchoolStuffType(name: name.text.trim(), description: desc.text.trim());
+      await _load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Type created')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+    }
+  }
+
+  Future<void> _addStuff() async {
+    final roleName = _selectedType?['name']?.toString() ?? '';
+    final fullName = TextEditingController();
+    final subject = TextEditingController();
+    String? schoolPick;
+    final username = TextEditingController();
+    final password = TextEditingController();
+    final email = TextEditingController();
+    final phone = TextEditingController();
+    final city = TextEditingController();
+    final subCity = TextEditingController();
+    final wereda = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setD) {
+          return AlertDialog(
+            title: const Text('Add school staff'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Type: $roleName', style: TextStyle(color: Colors.grey.shade700)),
+                  TextField(controller: fullName, decoration: const InputDecoration(labelText: 'Full name')),
+                  if (roleName == 'TEACHER')
+                    TextField(controller: subject, decoration: const InputDecoration(labelText: 'Subject')),
+                  DropdownButtonFormField<String?>(
+                    initialValue: schoolPick,
+                    decoration: const InputDecoration(labelText: 'School (optional)'),
+                    items: [
+                      const DropdownMenuItem<String?>(value: null, child: Text('— none —')),
+                      ..._schools.map((s) {
+                        final m = s as Map<String, dynamic>;
+                        return DropdownMenuItem<String?>(
+                          value: m['id']?.toString(),
+                          child: Text(m['name']?.toString() ?? ''),
+                        );
+                      }),
+                    ],
+                    onChanged: (v) => setD(() => schoolPick = v),
+                  ),
+                  TextField(controller: username, decoration: const InputDecoration(labelText: 'Username (optional)')),
+                  TextField(controller: password, obscureText: true, decoration: const InputDecoration(labelText: 'Password (optional)')),
+                  TextField(controller: email, decoration: const InputDecoration(labelText: 'Email')),
+                  TextField(controller: phone, decoration: const InputDecoration(labelText: 'Phone')),
+                  if (SessionStore.isSuperAdmin) ...[
+                    TextField(controller: city, decoration: const InputDecoration(labelText: 'City')),
+                    TextField(controller: subCity, decoration: const InputDecoration(labelText: 'Sub city')),
+                    TextField(controller: wereda, decoration: const InputDecoration(labelText: 'Wereda')),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              FilledButton(
+                onPressed: () async {
+                  if (_selectedTypeId.isEmpty) return;
+                  try {
+                    await ApiClient.createSchoolStuff({
+                      'roleId': _selectedTypeId,
+                      'fullName': fullName.text.trim(),
+                      'username': username.text.trim().isEmpty ? null : username.text.trim(),
+                      'password': password.text.isEmpty ? null : password.text,
+                      'email': email.text.trim().isEmpty ? null : email.text.trim(),
+                      'phone': phone.text.trim().isEmpty ? null : phone.text.trim(),
+                      'schoolId': schoolPick,
+                      'subject': subject.text.trim().isEmpty ? null : subject.text.trim(),
+                      'city': city.text.trim().isEmpty ? null : city.text.trim(),
+                      'subCity': subCity.text.trim().isEmpty ? null : subCity.text.trim(),
+                      'wereda': wereda.text.trim().isEmpty ? null : wereda.text.trim(),
+                    });
+                    if (ctx.mounted) Navigator.pop(ctx);
+                    await _load();
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved')));
+                  } catch (e) {
+                    if (ctx.mounted) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+                    }
+                  }
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _editTeacher(Map<String, dynamic> row) async {
+    final name = TextEditingController(text: row['fullName']?.toString() ?? '');
+    final subject = TextEditingController(text: row['subject']?.toString() ?? '');
+    String schoolId = row['schoolId']?.toString() ?? '';
+    final id = row['id']?.toString() ?? '';
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setD) => AlertDialog(
+          title: const Text('Edit teacher'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: name, decoration: const InputDecoration(labelText: 'Name')),
+              TextField(controller: subject, decoration: const InputDecoration(labelText: 'Subject')),
+              DropdownButtonFormField<String>(
+                initialValue: schoolId.isEmpty ? null : schoolId,
+                decoration: const InputDecoration(labelText: 'School'),
+                items: _schools.map((s) {
+                  final m = s as Map<String, dynamic>;
+                  return DropdownMenuItem(
+                    value: m['id']?.toString(),
+                    child: Text(m['name']?.toString() ?? ''),
+                  );
+                }).toList(),
+                onChanged: (v) => setD(() => schoolId = v ?? ''),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () async {
+                if (schoolId.isEmpty) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Select a school')));
+                  return;
+                }
+                try {
+                  await ApiClient.patchTeacher(
+                    teacherId: id,
+                    name: name.text.trim(),
+                    subject: subject.text.trim(),
+                    schoolId: schoolId,
+                  );
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  await _load();
+                } catch (e) {
+                  if (ctx.mounted) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+                  }
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteTeacher(String id) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete teacher?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ApiClient.deleteTeacher(id);
+      await _load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+    }
+  }
+
+  List<dynamic> get _filteredItems {
+    final typeName = _selectedType?['name']?.toString();
+    if (typeName == null || typeName.isEmpty) return _items;
+    return _items.where((e) => (e as Map<String, dynamic>)['type']?.toString() == typeName).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('School stuff'),
+        actions: [
+          IconButton(icon: const Icon(Icons.category_outlined), onPressed: _addType),
+          IconButton(icon: const Icon(Icons.person_add_alt_outlined), onPressed: _selectedTypeId.isEmpty ? null : _addStuff),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(child: Text(_error!))
+              : Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _selectedTypeId.isEmpty ? null : _selectedTypeId,
+                        decoration: const InputDecoration(labelText: 'Staff type'),
+                        isExpanded: true,
+                        items: _types
+                            .map((t) {
+                              final m = t as Map<String, dynamic>;
+                              return DropdownMenuItem(
+                                value: m['id']?.toString(),
+                                child: Text(m['name']?.toString() ?? ''),
+                              );
+                            })
+                            .toList(),
+                        onChanged: (v) => setState(() => _selectedTypeId = v ?? ''),
+                      ),
+                    ),
+                    Expanded(
+                      child: RefreshIndicator(
+                        onRefresh: _load,
+                        child: ListView.builder(
+                          padding: const EdgeInsets.all(12),
+                        itemCount: _filteredItems.length,
+                        itemBuilder: (context, i) {
+                          final m = _filteredItems[i] as Map<String, dynamic>;
+                            final type = m['type']?.toString() ?? '';
+                            return Card(
+                              child: ListTile(
+                                title: Text(m['fullName']?.toString() ?? ''),
+                                subtitle: Text(
+                                  '$type · ${m['schoolName'] ?? ''} · ${m['subject'] ?? ''}',
+                                ),
+                                trailing: type == 'TEACHER'
+                                    ? Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(icon: const Icon(Icons.edit_outlined), onPressed: () => _editTeacher(m)),
+                                          IconButton(
+                                            icon: const Icon(Icons.delete_outline),
+                                            onPressed: () => _deleteTeacher(m['id']?.toString() ?? ''),
+                                          ),
+                                        ],
+                                      )
+                                    : null,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+    );
+  }
+}

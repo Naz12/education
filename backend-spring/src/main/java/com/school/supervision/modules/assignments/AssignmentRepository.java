@@ -1,0 +1,24 @@
+package com.school.supervision.modules.assignments;
+
+import com.school.supervision.common.domain.DomainEnums.AssignmentStatus;
+import com.school.supervision.common.tenant.TenantAwareRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.UUID;
+
+@Repository
+public interface AssignmentRepository extends TenantAwareRepository<Assignment, UUID> {
+    List<Assignment> findAllBySupervisorIdAndOrganizationId(UUID supervisorId, UUID organizationId);
+    List<Assignment> findAllByOrganizationIdAndCreatedBy(UUID organizationId, UUID createdBy);
+    boolean existsByOrganizationIdAndChecklistId(UUID organizationId, UUID checklistId);
+
+    long countBySupervisorIdAndOrganizationIdAndStatus(UUID supervisorId, UUID organizationId, AssignmentStatus status);
+
+    boolean existsByOrganizationIdAndChecklistIdAndSchoolIdAndStatusIn(
+            UUID organizationId,
+            UUID checklistId,
+            UUID schoolId,
+            Collection<AssignmentStatus> statuses);
+}

@@ -1,0 +1,19 @@
+# Backend
+backend-spring/target/
+backend-spring/uploads/
+
+# Web
+web-portal/node_modules/
+web-portal/dist/
+
+# Flutter
+mobile-flutter/.dart_tool/
+mobile-flutter/build/
+mobile-flutter/.flutter-plugins-dependencies
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

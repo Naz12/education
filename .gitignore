@@ -1,6 +1,7 @@
 # Backend
 backend-spring/target/
 backend-spring/uploads/
+backend-spring/.env.production
 
 # Web
 web-portal/node_modules/
@@ -10,6 +11,9 @@ web-portal/dist/
 mobile-flutter/.dart_tool/
 mobile-flutter/build/
 mobile-flutter/.flutter-plugins-dependencies
+
+# Local deploy tooling (optional JDK/Maven download)
+.build-tools/
 
 # IDE / OS
 .idea/

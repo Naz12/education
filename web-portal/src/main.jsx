@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
-/** Dev uses Vite proxy (/api → backend) to avoid CORS and stale-fetch issues; prod: set VITE_API_BASE at build time if needed. */
+/** Use same-origin /api by default so production works behind nginx without extra env wiring. */
 const API_BASE =
   (import.meta.env.VITE_API_BASE && String(import.meta.env.VITE_API_BASE).trim()) ||
-  (import.meta.env.DEV ? "/api" : "http://localhost:8080/api");
+  "/api";
 
 /** Canonical grade codes (must match backend GradeCodes.ORDERED). */
 const CANONICAL_GRADE_CODES = ["KG1", "KG2", "KG3", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
@@ -298,16 +298,16 @@ function App() {
     refreshMe();
   }, [refreshMe]);
 
+  const isSuperAdmin = me?.roles?.includes("SUPER_ADMIN") || false;
+  const isCoordinator = me?.roles?.includes("CLUSTER_COORDINATOR") || false;
+  const canAdmin = isSuperAdmin || isCoordinator;
+  const isSupervisorPortal = (me?.roles?.includes("SUPERVISOR") || false) && !canAdmin;
+
   useEffect(() => {
-    if (!me) return;
-    const isSuperAdmin = me.roles.includes("SUPER_ADMIN");
-    const isCoordinator = me.roles.includes("CLUSTER_COORDINATOR");
-    const canAdmin = isSuperAdmin || isCoordinator;
-    const isSupervisorPortal = me.roles.includes("SUPERVISOR") && !canAdmin;
     if (!isSupervisorPortal || !supervisorLandingRef.current) return;
     supervisorLandingRef.current = false;
     setActiveTab("my-assignments");
-  }, [me]);
+  }, [isSupervisorPortal]);
 
   const onLogin = (newToken) => {
     setToken(newToken);
@@ -332,11 +332,6 @@ function App() {
       </div>
     );
   }
-
-  const isSuperAdmin = me.roles.includes("SUPER_ADMIN");
-  const isCoordinator = me.roles.includes("CLUSTER_COORDINATOR");
-  const canAdmin = isSuperAdmin || isCoordinator;
-  const isSupervisorPortal = me.roles.includes("SUPERVISOR") && !canAdmin;
 
   const tabs = [
     { id: "home", label: "Home" },
@@ -521,8 +516,13 @@ function LoginPage({ onLogin, error, setError }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password })
       });
-      if (!res.ok) throw new Error("Invalid username or password");
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = data.message || data.error || res.statusText;
+        throw new Error(
+          typeof msg === "string" && msg.trim() ? msg : "Invalid username or password"
+        );
+      }
       onLogin(data.accessToken);
     } catch (err) {
       setError(err.message);

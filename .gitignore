@@ -17,3 +17,6 @@ mobile-flutter/.flutter-plugins-dependencies
 *.iml
 .DS_Store
 Thumbs.db
+
+# Logs
+*.log

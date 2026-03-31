@@ -277,6 +277,7 @@ function App() {
   const [editingChecklistId, setEditingChecklistId] = useState("");
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [error, setError] = useState("");
+  const supervisorLandingRef = useRef(true);
 
   // Bearer only for GETs — adding Content-Type: application/json on GET triggers non-simple CORS preflight
   // against http://localhost:8080 and can break authenticated list loads in the browser.
@@ -296,6 +297,17 @@ function App() {
   useEffect(() => {
     refreshMe();
   }, [refreshMe]);
+
+  useEffect(() => {
+    if (!me) return;
+    const isSuperAdmin = me.roles.includes("SUPER_ADMIN");
+    const isCoordinator = me.roles.includes("CLUSTER_COORDINATOR");
+    const canAdmin = isSuperAdmin || isCoordinator;
+    const isSupervisorPortal = me.roles.includes("SUPERVISOR") && !canAdmin;
+    if (!isSupervisorPortal || !supervisorLandingRef.current) return;
+    supervisorLandingRef.current = false;
+    setActiveTab("my-assignments");
+  }, [me]);
 
   const onLogin = (newToken) => {
     setToken(newToken);
@@ -325,13 +337,6 @@ function App() {
   const isCoordinator = me.roles.includes("CLUSTER_COORDINATOR");
   const canAdmin = isSuperAdmin || isCoordinator;
   const isSupervisorPortal = me.roles.includes("SUPERVISOR") && !canAdmin;
-  const supervisorLandingRef = useRef(true);
-
-  useEffect(() => {
-    if (!isSupervisorPortal || !supervisorLandingRef.current) return;
-    supervisorLandingRef.current = false;
-    setActiveTab("my-assignments");
-  }, [isSupervisorPortal]);
 
   const tabs = [
     { id: "home", label: "Home" },
@@ -3775,6 +3780,7 @@ function AssignmentsPage({ headers }) {
   const [supervisors, setSupervisors] = useState([]);
   const [schools, setSchools] = useState([]);
   const [teachers, setTeachers] = useState([]);
+  const [schoolStuff, setSchoolStuff] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editBusy, setEditBusy] = useState(false);
   const [editingAssignmentId, setEditingAssignmentId] = useState("");
@@ -3826,6 +3832,7 @@ function AssignmentsPage({ headers }) {
       targetType: "SCHOOL",
       schoolId: "",
       teacherId: "",
+      staffUserId: "",
       dueDate: ""
     });
     setModalOpen(true);
@@ -3840,6 +3847,7 @@ function AssignmentsPage({ headers }) {
       targetType: row.targetType ?? "SCHOOL",
       schoolId: row.schoolId ?? "",
       teacherId: row.teacherId ?? "",
+      staffUserId: row.staffUserId ?? "",
       dueDate: toLocalDatetimeValue(row.dueDate)
     });
     setModalOpen(true);

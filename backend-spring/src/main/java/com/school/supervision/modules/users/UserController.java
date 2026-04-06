@@ -1,6 +1,8 @@
 package com.school.supervision.modules.users;
 
 import com.school.supervision.common.tenant.TenantContext;
+import com.school.supervision.modules.assignments.AssignmentRepository;
+import com.school.supervision.modules.organization.SchoolRepository;
 import com.school.supervision.modules.supervision.SupervisionStatsService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -22,15 +24,21 @@ public class UserController {
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
     private final SupervisionStatsService supervisionStatsService;
+    private final SchoolRepository schoolRepository;
+    private final AssignmentRepository assignmentRepository;
 
     public UserController(UserRepository userRepository,
                           RoleRepository roleRepository,
                           PasswordEncoder passwordEncoder,
-                          SupervisionStatsService supervisionStatsService) {
+                          SupervisionStatsService supervisionStatsService,
+                          SchoolRepository schoolRepository,
+                          AssignmentRepository assignmentRepository) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.passwordEncoder = passwordEncoder;
         this.supervisionStatsService = supervisionStatsService;
+        this.schoolRepository = schoolRepository;
+        this.assignmentRepository = assignmentRepository;
     }
 
     public record CreateUserRequest(@NotBlank String username,
@@ -55,6 +63,14 @@ public class UserController {
     public record ChangePasswordRequest(
             @NotBlank String currentPassword,
             @NotBlank @Size(min = 8, max = 200) String newPassword
+    ) {}
+    public record UpdateManagedUserRequest(
+            String fullName,
+            String email,
+            String phone,
+            String city,
+            String subCity,
+            String wereda
     ) {}
 
     @PostMapping
@@ -209,6 +225,63 @@ public class UserController {
         return userRepository.save(user).getId();
     }
 
+    @PatchMapping("/cluster-coordinators/{userId}")
+    public UUID updateClusterCoordinator(Authentication authentication,
+                                         @PathVariable UUID userId,
+                                         @RequestBody UpdateManagedUserRequest request) {
+        User current = requireCurrentUser(authentication);
+        requireSuperAdmin(current);
+        User user = requireManagedUserWithRole(userId, "CLUSTER_COORDINATOR");
+        applyManagedUserUpdate(user, request, true);
+        userRepository.save(user);
+        return user.getId();
+    }
+
+    @DeleteMapping("/cluster-coordinators/{userId}")
+    public void deleteClusterCoordinator(Authentication authentication, @PathVariable UUID userId) {
+        User current = requireCurrentUser(authentication);
+        requireSuperAdmin(current);
+        UUID orgId = requireTenant();
+        User user = requireManagedUserWithRole(userId, "CLUSTER_COORDINATOR");
+        if (!schoolRepository.findAllByOrganizationIdAndCoordinatorUserId(orgId, userId).isEmpty()) {
+            throw new IllegalArgumentException("Cannot delete coordinator that has assigned schools.");
+        }
+        if (!userRepository.findSupervisorsForCoordinator(orgId, userId).isEmpty()) {
+            throw new IllegalArgumentException("Cannot delete coordinator that has assigned supervisors.");
+        }
+        userRepository.delete(user);
+    }
+
+    @PatchMapping("/supervisors/{userId}")
+    public UUID updateSupervisor(Authentication authentication,
+                                 @PathVariable UUID userId,
+                                 @RequestBody UpdateManagedUserRequest request) {
+        User current = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(current);
+        User user = requireManagedUserWithRole(userId, "SUPERVISOR");
+        if (!isSuperAdmin(current) && !current.getId().equals(user.getCoordinatorUserId())) {
+            throw new AccessDeniedException("Supervisor not found in coordinator scope");
+        }
+        applyManagedUserUpdate(user, request, isSuperAdmin(current));
+        userRepository.save(user);
+        return user.getId();
+    }
+
+    @DeleteMapping("/supervisors/{userId}")
+    public void deleteSupervisor(Authentication authentication, @PathVariable UUID userId) {
+        User current = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(current);
+        UUID orgId = requireTenant();
+        User user = requireManagedUserWithRole(userId, "SUPERVISOR");
+        if (!isSuperAdmin(current) && !current.getId().equals(user.getCoordinatorUserId())) {
+            throw new AccessDeniedException("Supervisor not found in coordinator scope");
+        }
+        if (assignmentRepository.existsByOrganizationIdAndSupervisorId(orgId, userId)) {
+            throw new IllegalArgumentException("Cannot delete supervisor that has assignments.");
+        }
+        userRepository.delete(user);
+    }
+
     @PatchMapping("/{userId}/roles")
     public UUID assignRoles(Authentication authentication, @PathVariable UUID userId, @RequestBody Set<UUID> roleIds) {
         User current = requireCurrentUser(authentication);
@@ -270,6 +343,45 @@ public class UserController {
 
     private boolean isSuperAdmin(User user) {
         return user.getRoles().stream().anyMatch(r -> "SUPER_ADMIN".equals(r.getName()));
+    }
+
+    private User requireManagedUserWithRole(UUID userId, String roleName) {
+        User user = userRepository.findByIdAndOrganizationId(userId, requireTenant())
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        boolean hasRole = user.getRoles().stream().anyMatch(r -> roleName.equals(r.getName()));
+        if (!hasRole) {
+            throw new IllegalArgumentException("User is not a " + roleName);
+        }
+        return user;
+    }
+
+    private void applyManagedUserUpdate(User user, UpdateManagedUserRequest request, boolean allowLocationUpdate) {
+        if (request == null) return;
+        if (request.fullName() != null && !request.fullName().isBlank()) {
+            user.setFullName(request.fullName().trim());
+        }
+        if (request.email() != null) {
+            String v = request.email().trim();
+            user.setEmail(v.isEmpty() ? null : v);
+        }
+        if (request.phone() != null) {
+            String v = request.phone().trim();
+            user.setPhone(v.isEmpty() ? null : v);
+        }
+        if (allowLocationUpdate) {
+            if (request.city() != null) {
+                String v = request.city().trim();
+                user.setCity(v.isEmpty() ? null : v);
+            }
+            if (request.subCity() != null) {
+                String v = request.subCity().trim();
+                user.setSubCity(v.isEmpty() ? null : v);
+            }
+            if (request.wereda() != null) {
+                String v = request.wereda().trim();
+                user.setWereda(v.isEmpty() ? null : v);
+            }
+        }
     }
 
     private UserProfileResponse toProfile(User user) {

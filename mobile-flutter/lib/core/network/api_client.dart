@@ -5,7 +5,8 @@ import '../auth/session_store.dart';
 
 class ApiClient {
   static String _resolveLang() {
-    final code = ui.PlatformDispatcher.instance.locale.languageCode.toLowerCase();
+    final code =
+        ui.PlatformDispatcher.instance.locale.languageCode.toLowerCase();
     return code.startsWith('am') ? 'am' : 'en';
   }
 
@@ -74,7 +75,8 @@ class ApiClient {
   }
 
   static Future<Map<String, dynamic>> fetchMyStatus() async {
-    final response = await _dio.get('/users/me/status', options: _authOptions());
+    final response =
+        await _dio.get('/users/me/status', options: _authOptions());
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -129,7 +131,8 @@ class ApiClient {
     return response.data as List<dynamic>;
   }
 
-  static Future<Map<String, dynamic>> fetchAssignmentRender(String assignmentId) async {
+  static Future<Map<String, dynamic>> fetchAssignmentRender(
+      String assignmentId) async {
     final lang = _resolveLang();
     final response = await _dio.get(
       '/assignments/$assignmentId/render?lang=$lang',
@@ -138,7 +141,8 @@ class ApiClient {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  static Future<void> startReview(String assignmentId, double latitude, double longitude) async {
+  static Future<void> startReview(
+      String assignmentId, double latitude, double longitude) async {
     await _dio.post(
       '/assignments/$assignmentId/start',
       data: {'latitude': latitude, 'longitude': longitude},
@@ -172,7 +176,8 @@ class ApiClient {
     return data?.toString() ?? '';
   }
 
-  static Future<void> submitSignature(String reviewId, String signerRole, String imageBase64) async {
+  static Future<void> submitSignature(
+      String reviewId, String signerRole, String imageBase64) async {
     await _dio.post(
       '/reviews/$reviewId/signatures',
       data: {'signerRole': signerRole, 'imageBase64': imageBase64},
@@ -183,27 +188,54 @@ class ApiClient {
   // --- Admin / coordinator: users ---
 
   static Future<List<dynamic>> fetchClusterCoordinators() async {
-    final response = await _dio.get('/users/cluster-coordinators', options: _authOptions());
+    final response =
+        await _dio.get('/users/cluster-coordinators', options: _authOptions());
     return response.data as List<dynamic>;
   }
 
   static Future<List<dynamic>> fetchSupervisorsDirectory() async {
-    final response = await _dio.get('/users/supervisors', options: _authOptions());
+    final response =
+        await _dio.get('/users/supervisors', options: _authOptions());
     return response.data as List<dynamic>;
   }
 
-  static Future<void> createClusterCoordinator(Map<String, dynamic> body) async {
-    await _dio.post('/users/cluster-coordinators', data: body, options: _authOptions());
+  static Future<void> createClusterCoordinator(
+      Map<String, dynamic> body) async {
+    await _dio.post('/users/cluster-coordinators',
+        data: body, options: _authOptions());
+  }
+
+  static Future<void> patchClusterCoordinator(
+      String userId, Map<String, dynamic> body) async {
+    await _dio.patch('/users/cluster-coordinators/$userId',
+        data: body, options: _authOptions());
+  }
+
+  static Future<void> deleteClusterCoordinator(String userId) async {
+    await _dio.delete('/users/cluster-coordinators/$userId',
+        options: _authOptions());
   }
 
   static Future<void> createSupervisorUser(Map<String, dynamic> body) async {
     await _dio.post('/users/supervisors', data: body, options: _authOptions());
   }
 
+  static Future<void> patchSupervisorUser(
+      String userId, Map<String, dynamic> body) async {
+    await _dio.patch('/users/supervisors/$userId',
+        data: body, options: _authOptions());
+  }
+
+  static Future<void> deleteSupervisorUser(String userId) async {
+    await _dio.delete('/users/supervisors/$userId', options: _authOptions());
+  }
+
   // --- Schools ---
 
   static Future<List<dynamic>> fetchSchools({String? q}) async {
-    final path = (q != null && q.trim().isNotEmpty) ? '/schools?q=${Uri.encodeQueryComponent(q.trim())}' : '/schools';
+    final path = (q != null && q.trim().isNotEmpty)
+        ? '/schools?q=${Uri.encodeQueryComponent(q.trim())}'
+        : '/schools';
     final response = await _dio.get(path, options: _authOptions());
     return response.data as List<dynamic>;
   }
@@ -280,7 +312,8 @@ class ApiClient {
   // --- School stuff ---
 
   static Future<List<dynamic>> fetchSchoolStuffTypes() async {
-    final response = await _dio.get('/school-stuff/types', options: _authOptions());
+    final response =
+        await _dio.get('/school-stuff/types', options: _authOptions());
     return response.data as List<dynamic>;
   }
 
@@ -289,7 +322,8 @@ class ApiClient {
     return response.data as List<dynamic>;
   }
 
-  static Future<void> createSchoolStuffType({required String name, required String description}) async {
+  static Future<void> createSchoolStuffType(
+      {required String name, required String description}) async {
     await _dio.post(
       '/school-stuff/types',
       data: {'name': name, 'description': description},
@@ -299,6 +333,18 @@ class ApiClient {
 
   static Future<void> createSchoolStuff(Map<String, dynamic> body) async {
     await _dio.post('/school-stuff', data: body, options: _authOptions());
+  }
+
+  static Future<void> patchSchoolStuff(
+      String entryId, Map<String, dynamic> body) async {
+    await _dio.patch('/school-stuff/$entryId',
+        data: body, options: _authOptions());
+  }
+
+  static Future<void> deleteSchoolStuff(String entryId, String type) async {
+    await _dio.delete(
+        '/school-stuff/$entryId?type=${Uri.encodeQueryComponent(type)}',
+        options: _authOptions());
   }
 
   // --- Checklists ---
@@ -347,7 +393,8 @@ class ApiClient {
     return data.toString();
   }
 
-  static Future<Map<String, dynamic>> fetchChecklistRender(String checklistId, {String lang = 'en'}) async {
+  static Future<Map<String, dynamic>> fetchChecklistRender(String checklistId,
+      {String lang = 'en'}) async {
     final response = await _dio.get(
       '/checklists/$checklistId/render?lang=$lang',
       options: _authOptions(),
@@ -380,14 +427,16 @@ class ApiClient {
     await _dio.delete('/checklists/$checklistId', options: _authOptions());
   }
 
-  static Future<void> setChecklistEnabled(String checklistId, bool enable) async {
+  static Future<void> setChecklistEnabled(
+      String checklistId, bool enable) async {
     await _dio.patch(
       '/checklists/$checklistId/${enable ? 'enable' : 'disable'}',
       options: _authOptions(),
     );
   }
 
-  static Future<void> publishChecklistVersion(String checklistId, Map<String, dynamic> body) async {
+  static Future<void> publishChecklistVersion(
+      String checklistId, Map<String, dynamic> body) async {
     await _dio.post(
       '/checklists/$checklistId/versions',
       data: body,
@@ -395,18 +444,23 @@ class ApiClient {
     );
   }
 
-  static Future<List<dynamic>> fetchChecklistVersions(String checklistId) async {
-    final response = await _dio.get('/checklists/$checklistId/versions', options: _authOptions());
+  static Future<List<dynamic>> fetchChecklistVersions(
+      String checklistId) async {
+    final response = await _dio.get('/checklists/$checklistId/versions',
+        options: _authOptions());
     return response.data as List<dynamic>;
   }
 
   static Future<List<dynamic>> fetchChecklistTypeDefaults() async {
-    final response = await _dio.get('/checklists/type-defaults', options: _authOptions());
+    final response =
+        await _dio.get('/checklists/type-defaults', options: _authOptions());
     return response.data as List<dynamic>;
   }
 
-  static Future<void> patchChecklistTypeDefault(String type, Map<String, dynamic> body) async {
-    await _dio.patch('/checklists/type-defaults/$type', data: body, options: _authOptions());
+  static Future<void> patchChecklistTypeDefault(
+      String type, Map<String, dynamic> body) async {
+    await _dio.patch('/checklists/type-defaults/$type',
+        data: body, options: _authOptions());
   }
 
   // --- Assignments (org-wide) ---
@@ -420,8 +474,10 @@ class ApiClient {
     await _dio.post('/assignments', data: body, options: _authOptions());
   }
 
-  static Future<void> patchAssignment(String assignmentId, Map<String, dynamic> body) async {
-    await _dio.patch('/assignments/$assignmentId', data: body, options: _authOptions());
+  static Future<void> patchAssignment(
+      String assignmentId, Map<String, dynamic> body) async {
+    await _dio.patch('/assignments/$assignmentId',
+        data: body, options: _authOptions());
   }
 
   static Future<void> deleteAssignment(String assignmentId) async {
@@ -431,19 +487,24 @@ class ApiClient {
   // --- Supervision activity ---
 
   static Future<List<dynamic>> fetchSupervisorSummaries() async {
-    final response = await _dio.get('/supervision/supervisor-summaries', options: _authOptions());
+    final response = await _dio.get('/supervision/supervisor-summaries',
+        options: _authOptions());
     return response.data as List<dynamic>;
   }
 
-  static Future<List<dynamic>> fetchSupervisorVisits(String supervisorId) async {
-    final response = await _dio.get('/supervision/supervisors/$supervisorId/visits', options: _authOptions());
+  static Future<List<dynamic>> fetchSupervisorVisits(
+      String supervisorId) async {
+    final response = await _dio.get(
+        '/supervision/supervisors/$supervisorId/visits',
+        options: _authOptions());
     return response.data as List<dynamic>;
   }
 
   // --- Reports ---
 
   static Future<List<dynamic>> fetchSubmittedReports() async {
-    final response = await _dio.get('/reports/submitted-reviews', options: _authOptions());
+    final response =
+        await _dio.get('/reports/submitted-reviews', options: _authOptions());
     return response.data as List<dynamic>;
   }
 

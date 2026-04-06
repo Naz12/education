@@ -1,14 +1,12 @@
 package com.school.supervision.modules.organization;
 
 import com.school.supervision.common.tenant.TenantContext;
-import com.school.supervision.modules.checklists.GradeGroup;
+import com.school.supervision.modules.assignments.AssignmentRepository;
 import com.school.supervision.modules.reports.AuditService;
 import com.school.supervision.modules.users.Role;
 import com.school.supervision.modules.users.RoleRepository;
 import com.school.supervision.modules.users.User;
 import com.school.supervision.modules.users.UserRepository;
-import com.school.supervision.modules.organization.Teacher;
-import com.school.supervision.modules.organization.TeacherRepository;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -28,6 +26,7 @@ public class SchoolStuffController {
     private final SchoolRepository schoolRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final AssignmentRepository assignmentRepository;
 
     public SchoolStuffController(
             RoleRepository roleRepository,
@@ -35,7 +34,8 @@ public class SchoolStuffController {
             TeacherRepository teacherRepository,
             SchoolRepository schoolRepository,
             PasswordEncoder passwordEncoder,
-            AuditService auditService
+            AuditService auditService,
+            AssignmentRepository assignmentRepository
     ) {
         this.roleRepository = roleRepository;
         this.userRepository = userRepository;
@@ -43,6 +43,7 @@ public class SchoolStuffController {
         this.schoolRepository = schoolRepository;
         this.passwordEncoder = passwordEncoder;
         this.auditService = auditService;
+        this.assignmentRepository = assignmentRepository;
     }
 
     public record SchoolStuffTypeSummary(UUID id, String name, String description) {}
@@ -76,6 +77,17 @@ public class SchoolStuffController {
             String phone,
             UUID schoolId,
             String subject,
+            String city,
+            String subCity,
+            String wereda
+    ) {}
+    public record UpdateSchoolStuffRequest(
+            @NotBlank String type,
+            @NotBlank String fullName,
+            String subject,
+            UUID schoolId,
+            String email,
+            String phone,
             String city,
             String subCity,
             String wereda
@@ -389,6 +401,223 @@ public class SchoolStuffController {
                 java.util.Map.of("role", roleName)
         );
         return id;
+    }
+
+    @PatchMapping("/{entryId}")
+    public UUID update(Authentication authentication,
+                       @PathVariable UUID entryId,
+                       @Valid @RequestBody UpdateSchoolStuffRequest request) {
+        User current = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(current);
+        UUID orgId = requireTenant();
+        boolean isSuperAdmin = isSuperAdmin(current);
+        String type = request.type().trim().toUpperCase();
+
+        if ("TEACHER".equals(type)) {
+            Teacher teacher = teacherRepository.findByIdAndOrganizationId(entryId, orgId)
+                    .orElseThrow(() -> new IllegalArgumentException("Teacher not found"));
+            if (request.schoolId() == null) {
+                throw new IllegalArgumentException("schoolId is required for TEACHER");
+            }
+            if (request.subject() == null || request.subject().isBlank()) {
+                throw new IllegalArgumentException("subject is required for TEACHER");
+            }
+            if (!isSuperAdmin) {
+                schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(teacher.getSchoolId(), orgId, current.getId())
+                        .orElseThrow(() -> new IllegalArgumentException("Teacher not found in coordinator scope"));
+                schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(request.schoolId(), orgId, current.getId())
+                        .orElseThrow(() -> new IllegalArgumentException("School not found in coordinator scope"));
+            }
+            teacher.setName(request.fullName().trim());
+            teacher.setSubject(request.subject().trim());
+            teacher.setSchoolId(request.schoolId());
+            teacherRepository.save(teacher);
+            if (teacher.getUserId() != null) {
+                userRepository.findByIdAndOrganizationId(teacher.getUserId(), orgId).ifPresent(u -> {
+                    u.setFullName(request.fullName().trim());
+                    if (request.email() != null) {
+                        String v = request.email().trim();
+                        u.setEmail(v.isEmpty() ? null : v);
+                    }
+                    if (request.phone() != null) {
+                        String v = request.phone().trim();
+                        u.setPhone(v.isEmpty() ? null : v);
+                    }
+                    if (isSuperAdmin) {
+                        if (request.city() != null) {
+                            String v = request.city().trim();
+                            u.setCity(v.isEmpty() ? null : v);
+                        }
+                        if (request.subCity() != null) {
+                            String v = request.subCity().trim();
+                            u.setSubCity(v.isEmpty() ? null : v);
+                        }
+                        if (request.wereda() != null) {
+                            String v = request.wereda().trim();
+                            u.setWereda(v.isEmpty() ? null : v);
+                        }
+                    }
+                    userRepository.save(u);
+                });
+            }
+            return entryId;
+        }
+
+        if ("SCHOOL_DIRECTOR".equals(type)) {
+            User director = userRepository.findByIdAndOrganizationId(entryId, orgId)
+                    .orElseThrow(() -> new IllegalArgumentException("Director not found"));
+            boolean hasRole = director.getRoles().stream().anyMatch(r -> "SCHOOL_DIRECTOR".equals(r.getName()));
+            if (!hasRole) throw new IllegalArgumentException("User is not a SCHOOL_DIRECTOR");
+
+            School currentSchool = schoolRepository.findAllByOrganizationId(orgId).stream()
+                    .filter(s -> entryId.equals(s.getDirectorUserId()))
+                    .findFirst()
+                    .orElse(null);
+            if (!isSuperAdmin && currentSchool != null) {
+                schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(currentSchool.getId(), orgId, current.getId())
+                        .orElseThrow(() -> new IllegalArgumentException("Director not found in coordinator scope"));
+            }
+
+            director.setFullName(request.fullName().trim());
+            if (request.email() != null) {
+                String v = request.email().trim();
+                director.setEmail(v.isEmpty() ? null : v);
+            }
+            if (request.phone() != null) {
+                String v = request.phone().trim();
+                director.setPhone(v.isEmpty() ? null : v);
+            }
+            if (isSuperAdmin) {
+                if (request.city() != null) {
+                    String v = request.city().trim();
+                    director.setCity(v.isEmpty() ? null : v);
+                }
+                if (request.subCity() != null) {
+                    String v = request.subCity().trim();
+                    director.setSubCity(v.isEmpty() ? null : v);
+                }
+                if (request.wereda() != null) {
+                    String v = request.wereda().trim();
+                    director.setWereda(v.isEmpty() ? null : v);
+                }
+            }
+            userRepository.save(director);
+
+            if (request.schoolId() != null && (currentSchool == null || !request.schoolId().equals(currentSchool.getId()))) {
+                School target = isSuperAdmin
+                        ? schoolRepository.findByIdAndOrganizationId(request.schoolId(), orgId)
+                            .orElseThrow(() -> new IllegalArgumentException("School not found"))
+                        : schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(request.schoolId(), orgId, current.getId())
+                            .orElseThrow(() -> new IllegalArgumentException("School not found in coordinator scope"));
+                if (currentSchool != null) {
+                    currentSchool.setDirectorUserId(null);
+                    schoolRepository.save(currentSchool);
+                }
+                target.setDirectorUserId(entryId);
+                schoolRepository.save(target);
+            }
+            return entryId;
+        }
+
+        User staff = userRepository.findByIdAndOrganizationId(entryId, orgId)
+                .orElseThrow(() -> new IllegalArgumentException("Staff user not found"));
+        boolean hasTypeRole = staff.getRoles().stream().anyMatch(r -> type.equals(r.getName()));
+        if (!hasTypeRole) {
+            throw new IllegalArgumentException("User does not have role " + type);
+        }
+        if (!isSuperAdmin) {
+            if (!Objects.equals(staff.getCity(), current.getCity())
+                    || !Objects.equals(staff.getSubCity(), current.getSubCity())
+                    || !Objects.equals(staff.getWereda(), current.getWereda())) {
+                throw new IllegalArgumentException("Staff not found in coordinator scope");
+            }
+        }
+        staff.setFullName(request.fullName().trim());
+        if (request.email() != null) {
+            String v = request.email().trim();
+            staff.setEmail(v.isEmpty() ? null : v);
+        }
+        if (request.phone() != null) {
+            String v = request.phone().trim();
+            staff.setPhone(v.isEmpty() ? null : v);
+        }
+        if (isSuperAdmin) {
+            if (request.city() != null) {
+                String v = request.city().trim();
+                staff.setCity(v.isEmpty() ? null : v);
+            }
+            if (request.subCity() != null) {
+                String v = request.subCity().trim();
+                staff.setSubCity(v.isEmpty() ? null : v);
+            }
+            if (request.wereda() != null) {
+                String v = request.wereda().trim();
+                staff.setWereda(v.isEmpty() ? null : v);
+            }
+        }
+        userRepository.save(staff);
+        return entryId;
+    }
+
+    @DeleteMapping("/{entryId}")
+    public void delete(Authentication authentication,
+                       @PathVariable UUID entryId,
+                       @RequestParam String type) {
+        User current = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(current);
+        UUID orgId = requireTenant();
+        boolean isSuperAdmin = isSuperAdmin(current);
+        String normalizedType = type.trim().toUpperCase();
+
+        if ("TEACHER".equals(normalizedType)) {
+            Teacher teacher = teacherRepository.findByIdAndOrganizationId(entryId, orgId)
+                    .orElseThrow(() -> new IllegalArgumentException("Teacher not found"));
+            if (!isSuperAdmin) {
+                schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(teacher.getSchoolId(), orgId, current.getId())
+                        .orElseThrow(() -> new IllegalArgumentException("Teacher not found in coordinator scope"));
+            }
+            if (assignmentRepository.existsByOrganizationIdAndTeacherId(orgId, entryId)) {
+                throw new IllegalArgumentException("Cannot delete teacher that has assignments.");
+            }
+            teacherRepository.delete(teacher);
+            return;
+        }
+
+        if ("SCHOOL_DIRECTOR".equals(normalizedType)) {
+            User director = userRepository.findByIdAndOrganizationId(entryId, orgId)
+                    .orElseThrow(() -> new IllegalArgumentException("Director not found"));
+            School linkedSchool = schoolRepository.findAllByOrganizationId(orgId).stream()
+                    .filter(s -> entryId.equals(s.getDirectorUserId()))
+                    .findFirst()
+                    .orElse(null);
+            if (linkedSchool != null) {
+                if (!isSuperAdmin) {
+                    schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(linkedSchool.getId(), orgId, current.getId())
+                            .orElseThrow(() -> new IllegalArgumentException("Director not found in coordinator scope"));
+                }
+                if (assignmentRepository.existsByOrganizationIdAndSchoolId(orgId, linkedSchool.getId())) {
+                    throw new IllegalArgumentException("Cannot delete director that has school assignments.");
+                }
+                linkedSchool.setDirectorUserId(null);
+                schoolRepository.save(linkedSchool);
+            }
+            userRepository.delete(director);
+            return;
+        }
+
+        User staff = userRepository.findByIdAndOrganizationId(entryId, orgId)
+                .orElseThrow(() -> new IllegalArgumentException("Staff user not found"));
+        if (!isSuperAdmin) {
+            if (!Objects.equals(staff.getCity(), current.getCity())
+                    || !Objects.equals(staff.getSubCity(), current.getSubCity())
+                    || !Objects.equals(staff.getWereda(), current.getWereda())) {
+                throw new IllegalArgumentException("Staff not found in coordinator scope");
+            }
+        }
+        if (assignmentRepository.existsByOrganizationIdAndStaffUserId(orgId, entryId)) {
+            throw new IllegalArgumentException("Cannot delete staff that has assignments.");
+        }
+        userRepository.delete(staff);
     }
 
     private UUID requireTenant() {

@@ -746,6 +746,12 @@ function UsersPage({ headers, isSuperAdmin }) {
   const [supOpen, setSupOpen] = useState(false);
   const [coordForm, setCoordForm] = useState({ fullName: "", username: "", password: "", email: "", phone: "", city: "", subCity: "", wereda: "" });
   const [supervisorForm, setSupervisorForm] = useState({ fullName: "", username: "", password: "", email: "", phone: "", city: "", subCity: "", wereda: "" });
+  const [editUserOpen, setEditUserOpen] = useState(false);
+  const [editUserBusy, setEditUserBusy] = useState(false);
+  const [editUserForm, setEditUserForm] = useState({ id: "", kind: "supervisor", fullName: "", email: "", phone: "", city: "", subCity: "", wereda: "" });
+  const [deleteUserOpen, setDeleteUserOpen] = useState(false);
+  const [deleteUserBusy, setDeleteUserBusy] = useState(false);
+  const [deleteUserForm, setDeleteUserForm] = useState({ id: "", kind: "supervisor" });
   const [message, setMessage] = useState(null);
 
   const load = () => {
@@ -787,6 +793,84 @@ function UsersPage({ headers, isSuperAdmin }) {
     load();
   };
 
+  const openEditUser = (row, kind) => {
+    setEditUserForm({
+      id: row.id || "",
+      kind,
+      fullName: row.fullName || "",
+      email: row.email || "",
+      phone: row.phone || "",
+      city: row.city || "",
+      subCity: row.subCity || "",
+      wereda: row.wereda || ""
+    });
+    setEditUserOpen(true);
+  };
+
+  const saveEditUser = async (e) => {
+    e.preventDefault();
+    if (!editUserForm.id) return;
+    setEditUserBusy(true);
+    try {
+      const endpoint = editUserForm.kind === "coordinator"
+        ? `${API_BASE}/users/cluster-coordinators/${editUserForm.id}`
+        : `${API_BASE}/users/supervisors/${editUserForm.id}`;
+      const body = {
+        fullName: editUserForm.fullName,
+        email: editUserForm.email || null,
+        phone: editUserForm.phone || null,
+        ...(isSuperAdmin ? {
+          city: editUserForm.city || null,
+          subCity: editUserForm.subCity || null,
+          wereda: editUserForm.wereda || null
+        } : {})
+      };
+      const res = await fetch(endpoint, { method: "PATCH", headers: jsonHeaders(headers), body: JSON.stringify(body) });
+      if (!res.ok) {
+        let details = null;
+        try { details = await res.json(); } catch (_) {}
+        throw new Error(details?.message || "Could not update user.");
+      }
+      setEditUserOpen(false);
+      setMessage({ type: "ok", text: "User updated." });
+      await load();
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      setEditUserBusy(false);
+    }
+  };
+
+  const openDeleteUser = (id, kind) => {
+    setDeleteUserForm({ id, kind });
+    setDeleteUserOpen(true);
+  };
+
+  const confirmDeleteUser = async (e) => {
+    e.preventDefault();
+    if (!deleteUserForm.id) return;
+    setDeleteUserBusy(true);
+    try {
+      const endpoint = deleteUserForm.kind === "coordinator"
+        ? `${API_BASE}/users/cluster-coordinators/${deleteUserForm.id}`
+        : `${API_BASE}/users/supervisors/${deleteUserForm.id}`;
+      const res = await fetch(endpoint, { method: "DELETE", headers });
+      if (!res.ok) {
+        let details = null;
+        try { details = await res.json(); } catch (_) {}
+        throw new Error(details?.message || "Could not delete user.");
+      }
+      setDeleteUserOpen(false);
+      setMessage({ type: "ok", text: "User deleted." });
+      await load();
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      setDeleteUserBusy(false);
+      setDeleteUserForm({ id: "", kind: "supervisor" });
+    }
+  };
+
   return (
     <>
       <PageHeader
@@ -809,12 +893,21 @@ function UsersPage({ headers, isSuperAdmin }) {
               { key: "fullName", label: "Name" },
               { key: "username", label: "Username" },
               { key: "email", label: "Email" },
-              { key: "loc", label: "Location" }
+              { key: "loc", label: "Location" },
+              { key: "actions", label: "Actions" }
             ]}
             rows={coordinators}
             empty="No coordinators yet."
             renderCell={(key, row) => {
               if (key === "loc") return [row.city, row.subCity, row.wereda].filter(Boolean).join(" · ") || "—";
+              if (key === "actions") {
+                return (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <GhostButton onClick={() => openEditUser(row, "coordinator")} disabled={editUserBusy}>Edit</GhostButton>
+                    <GhostButton onClick={() => openDeleteUser(row.id, "coordinator")} disabled={deleteUserBusy}>Delete</GhostButton>
+                  </div>
+                );
+              }
               return row[key] || "—";
             }}
           />
@@ -828,12 +921,21 @@ function UsersPage({ headers, isSuperAdmin }) {
             { key: "fullName", label: "Name" },
             { key: "username", label: "Username" },
             { key: "email", label: "Email" },
-            { key: "loc", label: "Location" }
+            { key: "loc", label: "Location" },
+            { key: "actions", label: "Actions" }
           ]}
           rows={supervisors}
           empty="No supervisors yet."
           renderCell={(key, row) => {
             if (key === "loc") return [row.city, row.subCity, row.wereda].filter(Boolean).join(" · ") || "—";
+            if (key === "actions") {
+              return (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <GhostButton onClick={() => openEditUser(row, "supervisor")} disabled={editUserBusy}>Edit</GhostButton>
+                  <GhostButton onClick={() => openDeleteUser(row.id, "supervisor")} disabled={deleteUserBusy}>Delete</GhostButton>
+                </div>
+              );
+            }
             return row[key] || "—";
           }}
         />
@@ -873,6 +975,34 @@ function UsersPage({ headers, isSuperAdmin }) {
             </div>
           )}
           <PrimaryButton type="submit">Create</PrimaryButton>
+        </form>
+      </Modal>
+
+      <Modal open={editUserOpen} onClose={() => setEditUserOpen(false)} title={`Edit ${editUserForm.kind}`}>
+        <form onSubmit={saveEditUser} style={{ display: "grid", gap: 12 }}>
+          <div><Label>Full name</Label><Input value={editUserForm.fullName} onChange={(e) => setEditUserForm((p) => ({ ...p, fullName: e.target.value }))} required /></div>
+          <div><Label>Email</Label><Input type="email" value={editUserForm.email} onChange={(e) => setEditUserForm((p) => ({ ...p, email: e.target.value }))} /></div>
+          <div><Label>Phone</Label><Input value={editUserForm.phone} onChange={(e) => setEditUserForm((p) => ({ ...p, phone: e.target.value }))} /></div>
+          {isSuperAdmin && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              <div><Label>City</Label><Input value={editUserForm.city} onChange={(e) => setEditUserForm((p) => ({ ...p, city: e.target.value }))} /></div>
+              <div><Label>Sub city</Label><Input value={editUserForm.subCity} onChange={(e) => setEditUserForm((p) => ({ ...p, subCity: e.target.value }))} /></div>
+              <div><Label>Wereda</Label><Input value={editUserForm.wereda} onChange={(e) => setEditUserForm((p) => ({ ...p, wereda: e.target.value }))} /></div>
+            </div>
+          )}
+          <PrimaryButton type="submit" disabled={editUserBusy}>{editUserBusy ? "Saving…" : "Save changes"}</PrimaryButton>
+        </form>
+      </Modal>
+
+      <Modal open={deleteUserOpen} onClose={() => setDeleteUserOpen(false)} title={`Delete ${deleteUserForm.kind}`}>
+        <form onSubmit={confirmDeleteUser} style={{ display: "grid", gap: 12 }}>
+          <p style={{ margin: 0, color: t.muted, fontSize: 14 }}>
+            Deletion is blocked when related records still exist.
+          </p>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <GhostButton type="button" onClick={() => setDeleteUserOpen(false)} disabled={deleteUserBusy}>Cancel</GhostButton>
+            <PrimaryButton type="submit" disabled={deleteUserBusy}>{deleteUserBusy ? "Deleting…" : "Delete"}</PrimaryButton>
+          </div>
         </form>
       </Modal>
     </>
@@ -1151,10 +1281,21 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
 
   const [filterSchoolId, setFilterSchoolId] = useState("");
 
-  // TEACHER edit/delete (director/other roles are currently create-only in this UI).
+  // Edit/delete for all staff types.
   const [editTeacherOpen, setEditTeacherOpen] = useState(false);
   const [editTeacherBusy, setEditTeacherBusy] = useState(false);
-  const [editTeacherForm, setEditTeacherForm] = useState({ id: "", name: "", subject: "", schoolId: "" });
+  const [editTeacherForm, setEditTeacherForm] = useState({
+    id: "",
+    type: "TEACHER",
+    name: "",
+    subject: "",
+    schoolId: "",
+    email: "",
+    phone: "",
+    city: "",
+    subCity: "",
+    wereda: ""
+  });
   const [deleteTeacherOpen, setDeleteTeacherOpen] = useState(false);
   const [deleteTeacherBusy, setDeleteTeacherBusy] = useState(false);
   const [deleteTeacherId, setDeleteTeacherId] = useState("");
@@ -1272,9 +1413,15 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
   const openEditTeacher = (row) => {
     setEditTeacherForm({
       id: row.id,
+      type: row.type || "TEACHER",
       name: row.fullName || "",
       subject: row.subject || "",
-      schoolId: row.schoolId || ""
+      schoolId: row.schoolId || "",
+      email: row.email || "",
+      phone: row.phone || "",
+      city: row.city || "",
+      subCity: row.subCity || "",
+      wereda: row.wereda || ""
     });
     setEditTeacherOpen(true);
     setMessage(null);
@@ -1284,22 +1431,38 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
     e.preventDefault();
     setEditTeacherBusy(true);
     try {
-      const res = await fetch(`${API_BASE}/teachers/${editTeacherForm.id}`, {
-        method: "PATCH",
-        headers: jsonHeaders(headers),
-        body: JSON.stringify({
-          name: editTeacherForm.name,
-          subject: editTeacherForm.subject,
-          schoolId: editTeacherForm.schoolId
-        })
-      });
+      const res = editTeacherForm.type === "TEACHER"
+        ? await fetch(`${API_BASE}/teachers/${editTeacherForm.id}`, {
+            method: "PATCH",
+            headers: jsonHeaders(headers),
+            body: JSON.stringify({
+              name: editTeacherForm.name,
+              subject: editTeacherForm.subject,
+              schoolId: editTeacherForm.schoolId
+            })
+          })
+        : await fetch(`${API_BASE}/school-stuff/${editTeacherForm.id}`, {
+            method: "PATCH",
+            headers: jsonHeaders(headers),
+            body: JSON.stringify({
+              type: editTeacherForm.type,
+              fullName: editTeacherForm.name,
+              subject: editTeacherForm.subject || null,
+              schoolId: editTeacherForm.schoolId || null,
+              email: editTeacherForm.email || null,
+              phone: editTeacherForm.phone || null,
+              city: editTeacherForm.city || null,
+              subCity: editTeacherForm.subCity || null,
+              wereda: editTeacherForm.wereda || null
+            })
+          });
       if (!res.ok) {
         let details = null;
         try { details = await res.json(); } catch (_) {}
-        throw new Error(details?.message || "Teacher update failed.");
+        throw new Error(details?.message || "Staff update failed.");
       }
       setEditTeacherOpen(false);
-      setMessage({ type: "ok", text: "Teacher updated." });
+      setMessage({ type: "ok", text: "Staff updated." });
       await loadItems();
     } catch (err) {
       setMessage({ type: "error", text: err.message });
@@ -1308,7 +1471,8 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
     }
   };
 
-  const openDeleteTeacher = (id) => {
+  const openDeleteTeacher = (id, type = "TEACHER") => {
+    setEditTeacherForm((p) => ({ ...p, type }));
     setDeleteTeacherId(id);
     setDeleteTeacherOpen(true);
     setMessage(null);
@@ -1318,14 +1482,16 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
     e.preventDefault();
     setDeleteTeacherBusy(true);
     try {
-      const res = await fetch(`${API_BASE}/teachers/${deleteTeacherId}`, { method: "DELETE", headers });
+      const res = editTeacherForm.type === "TEACHER"
+        ? await fetch(`${API_BASE}/teachers/${deleteTeacherId}`, { method: "DELETE", headers })
+        : await fetch(`${API_BASE}/school-stuff/${deleteTeacherId}?type=${encodeURIComponent(editTeacherForm.type)}`, { method: "DELETE", headers });
       if (!res.ok) {
         let details = null;
         try { details = await res.json(); } catch (_) {}
-        throw new Error(details?.message || "Teacher delete failed.");
+        throw new Error(details?.message || "Staff delete failed.");
       }
       setDeleteTeacherOpen(false);
-      setMessage({ type: "ok", text: "Teacher deleted." });
+      setMessage({ type: "ok", text: "Staff deleted." });
       await loadItems();
     } catch (err) {
       setMessage({ type: "error", text: err.message });
@@ -1384,11 +1550,10 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
           if (key === "subject") return row.subject || "—";
           if (key === "schoolName") return row.schoolName || "—";
           if (key === "actions") {
-            if (row.type !== "TEACHER") return "—";
             return (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <GhostButton onClick={() => openEditTeacher(row)} disabled={editTeacherBusy}>Edit</GhostButton>
-                <GhostButton onClick={() => openDeleteTeacher(row.id)} disabled={deleteTeacherBusy}>Delete</GhostButton>
+                <GhostButton onClick={() => openDeleteTeacher(row.id, row.type)} disabled={deleteTeacherBusy}>Delete</GhostButton>
               </div>
             );
           }
@@ -1487,31 +1652,64 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
         </form>
       </Modal>
 
-      <Modal open={editTeacherOpen} onClose={() => setEditTeacherOpen(false)} title="Edit teacher" wide>
+      <Modal open={editTeacherOpen} onClose={() => setEditTeacherOpen(false)} title={`Edit ${editTeacherForm.type.toLowerCase()}`} wide>
         <form onSubmit={saveEditTeacher} style={{ display: "grid", gap: 12 }}>
           <div><Label>Full name</Label><Input value={editTeacherForm.name} onChange={(e) => setEditTeacherForm((p) => ({ ...p, name: e.target.value }))} required /></div>
-          <div><Label>Subject</Label><Input value={editTeacherForm.subject} onChange={(e) => setEditTeacherForm((p) => ({ ...p, subject: e.target.value }))} required /></div>
-          <div>
-            <Label>School</Label>
-            <select
-              value={editTeacherForm.schoolId}
-              onChange={(e) => setEditTeacherForm((p) => ({ ...p, schoolId: e.target.value }))}
-              required
-              style={{ fontFamily: t.font, width: "100%", padding: "10px 12px", borderRadius: t.radius, border: `1px solid ${t.line}` }}
-            >
-              <option value="">Select…</option>
-              {schools.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
-          </div>
+          {editTeacherForm.type === "TEACHER" && (
+            <>
+              <div><Label>Subject</Label><Input value={editTeacherForm.subject} onChange={(e) => setEditTeacherForm((p) => ({ ...p, subject: e.target.value }))} required /></div>
+              <div>
+                <Label>School</Label>
+                <select
+                  value={editTeacherForm.schoolId}
+                  onChange={(e) => setEditTeacherForm((p) => ({ ...p, schoolId: e.target.value }))}
+                  required
+                  style={{ fontFamily: t.font, width: "100%", padding: "10px 12px", borderRadius: t.radius, border: `1px solid ${t.line}` }}
+                >
+                  <option value="">Select…</option>
+                  {schools.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
+          {editTeacherForm.type !== "TEACHER" && (
+            <>
+              <div><Label>Email</Label><Input type="email" value={editTeacherForm.email} onChange={(e) => setEditTeacherForm((p) => ({ ...p, email: e.target.value }))} /></div>
+              <div><Label>Phone</Label><Input value={editTeacherForm.phone} onChange={(e) => setEditTeacherForm((p) => ({ ...p, phone: e.target.value }))} /></div>
+            </>
+          )}
+          {editTeacherForm.type === "SCHOOL_DIRECTOR" && (
+            <div>
+              <Label>School</Label>
+              <select
+                value={editTeacherForm.schoolId}
+                onChange={(e) => setEditTeacherForm((p) => ({ ...p, schoolId: e.target.value }))}
+                required
+                style={{ fontFamily: t.font, width: "100%", padding: "10px 12px", borderRadius: t.radius, border: `1px solid ${t.line}` }}
+              >
+                <option value="">Select…</option>
+                {schools.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          {isSuperAdmin && editTeacherForm.type !== "TEACHER" && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              <div><Label>City</Label><Input value={editTeacherForm.city} onChange={(e) => setEditTeacherForm((p) => ({ ...p, city: e.target.value }))} /></div>
+              <div><Label>Sub city</Label><Input value={editTeacherForm.subCity} onChange={(e) => setEditTeacherForm((p) => ({ ...p, subCity: e.target.value }))} /></div>
+              <div><Label>Wereda</Label><Input value={editTeacherForm.wereda} onChange={(e) => setEditTeacherForm((p) => ({ ...p, wereda: e.target.value }))} /></div>
+            </div>
+          )}
           <PrimaryButton type="submit" disabled={editTeacherBusy}>{editTeacherBusy ? "Saving…" : "Save changes"}</PrimaryButton>
         </form>
       </Modal>
 
-      <Modal open={deleteTeacherOpen} onClose={() => setDeleteTeacherOpen(false)} title="Delete teacher">
+      <Modal open={deleteTeacherOpen} onClose={() => setDeleteTeacherOpen(false)} title={`Delete ${editTeacherForm.type.toLowerCase()}`}>
         <form onSubmit={confirmDeleteTeacher} style={{ display: "grid", gap: 12 }}>
-          <p style={{ margin: 0, color: t.muted, fontSize: 14 }}>Deletion is blocked if the teacher has assignments.</p>
+          <p style={{ margin: 0, color: t.muted, fontSize: 14 }}>Deletion is blocked if related assignments exist.</p>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <GhostButton type="button" onClick={() => setDeleteTeacherOpen(false)} disabled={deleteTeacherBusy}>Cancel</GhostButton>
             <PrimaryButton type="submit" disabled={deleteTeacherBusy}>{deleteTeacherBusy ? "Deleting…" : "Delete"}</PrimaryButton>

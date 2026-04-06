@@ -11,6 +11,10 @@ import java.util.UUID;
 @Repository
 public interface AssignmentRepository extends TenantAwareRepository<Assignment, UUID> {
     List<Assignment> findAllBySupervisorIdAndOrganizationId(UUID supervisorId, UUID organizationId);
+    boolean existsByOrganizationIdAndSupervisorId(UUID organizationId, UUID supervisorId);
+    boolean existsByOrganizationIdAndTeacherId(UUID organizationId, UUID teacherId);
+    boolean existsByOrganizationIdAndStaffUserId(UUID organizationId, UUID staffUserId);
+    boolean existsByOrganizationIdAndSchoolId(UUID organizationId, UUID schoolId);
     List<Assignment> findAllByOrganizationIdAndCreatedBy(UUID organizationId, UUID createdBy);
     boolean existsByOrganizationIdAndChecklistId(UUID organizationId, UUID checklistId);
 

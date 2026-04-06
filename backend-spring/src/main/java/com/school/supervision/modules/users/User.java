@@ -1,10 +1,13 @@
 package com.school.supervision.modules.users;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.school.supervision.common.domain.TenantScopedEntity;
+import com.school.supervision.common.grades.GradeCodes;
 import jakarta.persistence.*;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
 
 @Entity
 @Table(name = "users")
@@ -21,8 +24,17 @@ public class User extends TenantScopedEntity {
     @Column(name = "sub_city")
     private String subCity;
     private String wereda;
+    @Column(name = "city_id")
+    private UUID cityId;
+    @Column(name = "subcity_id")
+    private UUID subcityId;
+    @Column(name = "wereda_id")
+    private UUID weredaId;
     @Column(name = "coordinator_user_id")
     private java.util.UUID coordinatorUserId;
+    /** JSON array of grade codes this supervisor may cover; null/empty means all grades (legacy). */
+    @Column(name = "supervised_grade_codes", columnDefinition = "TEXT")
+    private String supervisedGradeCodesJson;
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
 
@@ -102,11 +114,55 @@ public class User extends TenantScopedEntity {
         this.wereda = wereda;
     }
 
+    public UUID getCityId() {
+        return cityId;
+    }
+
+    public void setCityId(UUID cityId) {
+        this.cityId = cityId;
+    }
+
+    public UUID getSubcityId() {
+        return subcityId;
+    }
+
+    public void setSubcityId(UUID subcityId) {
+        this.subcityId = subcityId;
+    }
+
+    public UUID getWeredaId() {
+        return weredaId;
+    }
+
+    public void setWeredaId(UUID weredaId) {
+        this.weredaId = weredaId;
+    }
+
     public java.util.UUID getCoordinatorUserId() {
         return coordinatorUserId;
     }
 
     public void setCoordinatorUserId(java.util.UUID coordinatorUserId) {
         this.coordinatorUserId = coordinatorUserId;
+    }
+
+    public String getSupervisedGradeCodesJson() {
+        return supervisedGradeCodesJson;
+    }
+
+    public void setSupervisedGradeCodesJson(String supervisedGradeCodesJson) {
+        this.supervisedGradeCodesJson = supervisedGradeCodesJson;
+    }
+
+    /**
+     * Effective grade scope for supervisors. When nothing is stored, all canonical grades are allowed (legacy rows).
+     */
+    public Set<String> effectiveSupervisedGrades(ObjectMapper objectMapper) {
+        Set<String> normalized = GradeCodes.normalize(
+                GradeCodes.parseJsonArray(objectMapper, supervisedGradeCodesJson));
+        if (normalized.isEmpty()) {
+            return Set.copyOf(GradeCodes.ORDERED);
+        }
+        return normalized;
     }
 }

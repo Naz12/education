@@ -13,6 +13,9 @@ import com.school.supervision.modules.checklists.GradeGroup;
 import com.school.supervision.modules.checklists.GradeGroupRepository;
 import com.school.supervision.modules.organization.School;
 import com.school.supervision.modules.organization.SchoolRepository;
+import com.school.supervision.modules.organization.GeographyService;
+import com.school.supervision.modules.organization.Subject;
+import com.school.supervision.modules.organization.SubjectRepository;
 import com.school.supervision.modules.organization.Teacher;
 import com.school.supervision.modules.organization.TeacherRepository;
 import org.springframework.boot.ApplicationArguments;
@@ -31,11 +34,15 @@ import java.util.UUID;
 public class DemoDataInitializer implements ApplicationRunner {
     private static final UUID DEFAULT_ORG_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final UUID DEFAULT_CLUSTER_ID = UUID.fromString("51111111-1111-1111-1111-111111111111");
+    /** Wereda "10" under Lemi Kura / Addis Ababa from reference seed. */
+    private static final UUID DEFAULT_WEREDA_ID = UUID.fromString("41111111-1111-1111-1111-111111111111");
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final SchoolRepository schoolRepository;
     private final TeacherRepository teacherRepository;
+    private final SubjectRepository subjectRepository;
+    private final GeographyService geographyService;
     private final ChecklistRepository checklistRepository;
     private final ChecklistVersionRepository checklistVersionRepository;
     private final ChecklistItemRepository checklistItemRepository;
@@ -47,6 +54,8 @@ public class DemoDataInitializer implements ApplicationRunner {
                                RoleRepository roleRepository,
                                SchoolRepository schoolRepository,
                                TeacherRepository teacherRepository,
+                               SubjectRepository subjectRepository,
+                               GeographyService geographyService,
                                ChecklistRepository checklistRepository,
                                ChecklistVersionRepository checklistVersionRepository,
                                ChecklistItemRepository checklistItemRepository,
@@ -57,6 +66,8 @@ public class DemoDataInitializer implements ApplicationRunner {
         this.roleRepository = roleRepository;
         this.schoolRepository = schoolRepository;
         this.teacherRepository = teacherRepository;
+        this.subjectRepository = subjectRepository;
+        this.geographyService = geographyService;
         this.checklistRepository = checklistRepository;
         this.checklistVersionRepository = checklistVersionRepository;
         this.checklistItemRepository = checklistItemRepository;
@@ -85,6 +96,10 @@ public class DemoDataInitializer implements ApplicationRunner {
 
         User coordinator1 = ensureUser("clustercoordinator1", "Cluster Coordinator One", "Coordinator1@12345", coordinatorRole);
         User coordinator2 = ensureUser("clustercoordinator2", "Cluster Coordinator Two", "Coordinator2@12345", coordinatorRole);
+        for (User c : List.of(coordinator1, coordinator2)) {
+            geographyService.applyWeredaToUser(c, DEFAULT_WEREDA_ID);
+            userRepository.save(c);
+        }
 
         User supervisor2 = ensureUser("supervisor2", "Supervisor Two", "Supervisor2@12345", supervisorRole);
         User supervisor3 = ensureUser("supervisor3", "Supervisor Three", "Supervisor3@12345", supervisorRole);
@@ -128,6 +143,16 @@ public class DemoDataInitializer implements ApplicationRunner {
             user.getRoles().add(role);
             return userRepository.save(user);
         });
+    }
+
+    private Subject ensureSubject(String name) {
+        return subjectRepository.findByOrganizationIdAndName(DEFAULT_ORG_ID, name)
+                .orElseGet(() -> {
+                    Subject s = new Subject();
+                    s.setOrganizationId(DEFAULT_ORG_ID);
+                    s.setName(name);
+                    return subjectRepository.save(s);
+                });
     }
 
     private List<School> ensureSchools(List<User> directors) {
@@ -181,7 +206,8 @@ public class DemoDataInitializer implements ApplicationRunner {
                 User linkedUser = teachers.get(teacherIndex % teachers.size());
                 teacher.setUserId(linkedUser.getId());
                 teacher.setName(linkedUser.getFullName() + " - " + (j + 1));
-                teacher.setSubject(subjects[(teacherIndex + j) % subjects.length]);
+                String subjName = subjects[(teacherIndex + j) % subjects.length];
+                teacher.setSubjectId(ensureSubject(subjName).getId());
                 teacherRepository.save(teacher);
             }
             teacherIndex++;

@@ -12,4 +12,6 @@ public interface TeacherRepository extends TenantAwareRepository<Teacher, UUID> 
     List<Teacher> findAllByOrganizationIdAndSchoolIdIn(UUID organizationId, Collection<UUID> schoolIds);
 
     List<Teacher> findAllByOrganizationIdAndSchoolId(UUID organizationId, UUID schoolId);
+
+    long countByOrganizationIdAndSubjectId(UUID organizationId, UUID subjectId);
 }

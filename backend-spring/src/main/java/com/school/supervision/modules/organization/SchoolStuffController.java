@@ -16,6 +16,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/school-stuff")
@@ -24,6 +25,7 @@ public class SchoolStuffController {
     private final UserRepository userRepository;
     private final TeacherRepository teacherRepository;
     private final SchoolRepository schoolRepository;
+    private final SubjectRepository subjectRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
     private final AssignmentRepository assignmentRepository;
@@ -33,6 +35,7 @@ public class SchoolStuffController {
             UserRepository userRepository,
             TeacherRepository teacherRepository,
             SchoolRepository schoolRepository,
+            SubjectRepository subjectRepository,
             PasswordEncoder passwordEncoder,
             AuditService auditService,
             AssignmentRepository assignmentRepository
@@ -41,12 +44,13 @@ public class SchoolStuffController {
         this.userRepository = userRepository;
         this.teacherRepository = teacherRepository;
         this.schoolRepository = schoolRepository;
+        this.subjectRepository = subjectRepository;
         this.passwordEncoder = passwordEncoder;
         this.auditService = auditService;
         this.assignmentRepository = assignmentRepository;
     }
 
-    public record SchoolStuffTypeSummary(UUID id, String name, String description) {}
+    public record SchoolStuffTypeSummary(UUID id, String name, String description, boolean systemRole) {}
 
     public record SchoolStuffSummary(
             UUID id,
@@ -55,6 +59,7 @@ public class SchoolStuffController {
             String username,
             String email,
             String phone,
+            UUID subjectId,
             String subject,
             UUID schoolId,
             String schoolName,
@@ -62,6 +67,14 @@ public class SchoolStuffController {
             String subCity,
             String wereda
     ) {}
+
+    public record SubjectSummary(UUID id, String name) {}
+
+    public record CreateSubjectRequest(@NotBlank String name) {}
+
+    public record UpdateSubjectRequest(@NotBlank String name) {}
+
+    public record UpdateSchoolStuffTypeRequest(@NotBlank String name, @NotBlank String description) {}
 
     public record CreateSchoolStuffTypeRequest(
             @NotBlank String name,
@@ -76,7 +89,7 @@ public class SchoolStuffController {
             String email,
             String phone,
             UUID schoolId,
-            String subject,
+            UUID subjectId,
             String city,
             String subCity,
             String wereda
@@ -84,7 +97,7 @@ public class SchoolStuffController {
     public record UpdateSchoolStuffRequest(
             @NotBlank String type,
             @NotBlank String fullName,
-            String subject,
+            UUID subjectId,
             UUID schoolId,
             String email,
             String phone,
@@ -106,7 +119,7 @@ public class SchoolStuffController {
         return roleRepository.findAllByOrganizationId(orgId).stream()
                 .filter(r -> !excluded.contains(r.getName()))
                 .sorted(Comparator.comparing(Role::getName))
-                .map(r -> new SchoolStuffTypeSummary(r.getId(), r.getName(), r.getDescription()))
+                .map(r -> new SchoolStuffTypeSummary(r.getId(), r.getName(), r.getDescription(), r.isSystemRole()))
                 .toList();
     }
 
@@ -117,18 +130,19 @@ public class SchoolStuffController {
         UUID orgId = requireTenant();
 
         Set<String> blocked = Set.of("SUPER_ADMIN", "CLUSTER_COORDINATOR", "SUPERVISOR");
-        if (blocked.contains(request.name())) {
+        String typeName = request.name().trim().toUpperCase();
+        if (blocked.contains(typeName)) {
             throw new IllegalArgumentException("Cannot create reserved role types");
         }
 
-        if (roleRepository.findByOrganizationIdAndName(orgId, request.name()).isPresent()) {
+        if (roleRepository.findByOrganizationIdAndName(orgId, typeName).isPresent()) {
             throw new IllegalArgumentException("Role type already exists");
         }
 
         Role role = new Role();
         role.setOrganizationId(orgId);
-        role.setName(request.name());
-        role.setDescription(request.description());
+        role.setName(typeName);
+        role.setDescription(request.description().trim());
         role.setSystemRole(false);
 
         UUID id = roleRepository.save(role).getId();
@@ -138,9 +152,170 @@ public class SchoolStuffController {
                 "SCHOOL_STUFF_TYPE_CREATED",
                 "ROLE",
                 id,
-                java.util.Map.of("roleName", request.name())
+                java.util.Map.of("roleName", typeName)
         );
         return id;
+    }
+
+    @PatchMapping("/types/{typeId}")
+    public void updateType(Authentication authentication,
+                           @PathVariable UUID typeId,
+                           @Valid @RequestBody UpdateSchoolStuffTypeRequest request) {
+        User current = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(current);
+        UUID orgId = requireTenant();
+
+        Role role = roleRepository.findByIdAndOrganizationId(typeId, orgId)
+                .orElseThrow(() -> new IllegalArgumentException("Role type not found"));
+        if (role.isSystemRole()) {
+            throw new IllegalArgumentException("Cannot edit system role types");
+        }
+        Set<String> excluded = Set.of("SUPER_ADMIN", "CLUSTER_COORDINATOR", "SUPERVISOR");
+        if (excluded.contains(role.getName())) {
+            throw new IllegalArgumentException("Cannot edit reserved role types");
+        }
+
+        String newName = request.name().trim().toUpperCase();
+        Set<String> blocked = Set.of("SUPER_ADMIN", "CLUSTER_COORDINATOR", "SUPERVISOR");
+        if (blocked.contains(newName)) {
+            throw new IllegalArgumentException("Cannot use reserved role type names");
+        }
+        roleRepository.findByOrganizationIdAndName(orgId, newName)
+                .filter(r -> !r.getId().equals(typeId))
+                .ifPresent(r -> {
+                    throw new IllegalArgumentException("Role type already exists");
+                });
+
+        role.setName(newName);
+        role.setDescription(request.description().trim());
+        roleRepository.save(role);
+        auditService.record(
+                orgId,
+                current.getId(),
+                "SCHOOL_STUFF_TYPE_UPDATED",
+                "ROLE",
+                typeId,
+                java.util.Map.of("roleName", newName)
+        );
+    }
+
+    @DeleteMapping("/types/{typeId}")
+    public void deleteType(Authentication authentication, @PathVariable UUID typeId) {
+        User current = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(current);
+        UUID orgId = requireTenant();
+
+        Role role = roleRepository.findByIdAndOrganizationId(typeId, orgId)
+                .orElseThrow(() -> new IllegalArgumentException("Role type not found"));
+        if (role.isSystemRole()) {
+            throw new IllegalArgumentException("Cannot delete system role types");
+        }
+        Set<String> excluded = Set.of("SUPER_ADMIN", "CLUSTER_COORDINATOR", "SUPERVISOR");
+        if (excluded.contains(role.getName())) {
+            throw new IllegalArgumentException("Cannot delete reserved role types");
+        }
+        long usersWithRole = userRepository.countByOrganizationIdAndRoleId(orgId, typeId);
+        if (usersWithRole > 0) {
+            throw new IllegalArgumentException("Cannot delete role type that is assigned to users");
+        }
+        roleRepository.delete(role);
+        auditService.record(
+                orgId,
+                current.getId(),
+                "SCHOOL_STUFF_TYPE_DELETED",
+                "ROLE",
+                typeId,
+                java.util.Map.of("roleName", role.getName())
+        );
+    }
+
+    @GetMapping("/subjects")
+    public List<SubjectSummary> listSubjects(Authentication authentication) {
+        User current = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(current);
+        UUID orgId = requireTenant();
+        return subjectRepository.findAllByOrganizationId(orgId).stream()
+                .sorted(Comparator.comparing(Subject::getName, String.CASE_INSENSITIVE_ORDER))
+                .map(s -> new SubjectSummary(s.getId(), s.getName()))
+                .toList();
+    }
+
+    @PostMapping("/subjects")
+    public UUID createSubject(Authentication authentication, @Valid @RequestBody CreateSubjectRequest request) {
+        User current = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(current);
+        UUID orgId = requireTenant();
+        String name = request.name().trim();
+        if (name.isEmpty()) {
+            throw new IllegalArgumentException("Subject name is required");
+        }
+        if (subjectRepository.existsByOrganizationIdAndName(orgId, name)) {
+            throw new IllegalArgumentException("Subject already exists");
+        }
+        Subject s = new Subject();
+        s.setOrganizationId(orgId);
+        s.setName(name);
+        UUID id = subjectRepository.save(s).getId();
+        auditService.record(
+                orgId,
+                current.getId(),
+                "SUBJECT_CREATED",
+                "SUBJECT",
+                id,
+                java.util.Map.of("name", name)
+        );
+        return id;
+    }
+
+    @PatchMapping("/subjects/{subjectId}")
+    public void updateSubject(Authentication authentication,
+                              @PathVariable UUID subjectId,
+                              @Valid @RequestBody UpdateSubjectRequest request) {
+        User current = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(current);
+        UUID orgId = requireTenant();
+        Subject s = subjectRepository.findByIdAndOrganizationId(subjectId, orgId)
+                .orElseThrow(() -> new IllegalArgumentException("Subject not found"));
+        String name = request.name().trim();
+        if (name.isEmpty()) {
+            throw new IllegalArgumentException("Subject name is required");
+        }
+        subjectRepository.findByOrganizationIdAndName(orgId, name)
+                .filter(x -> !x.getId().equals(subjectId))
+                .ifPresent(x -> {
+                    throw new IllegalArgumentException("Subject already exists");
+                });
+        s.setName(name);
+        subjectRepository.save(s);
+        auditService.record(
+                orgId,
+                current.getId(),
+                "SUBJECT_UPDATED",
+                "SUBJECT",
+                subjectId,
+                java.util.Map.of("name", name)
+        );
+    }
+
+    @DeleteMapping("/subjects/{subjectId}")
+    public void deleteSubject(Authentication authentication, @PathVariable UUID subjectId) {
+        User current = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(current);
+        UUID orgId = requireTenant();
+        Subject s = subjectRepository.findByIdAndOrganizationId(subjectId, orgId)
+                .orElseThrow(() -> new IllegalArgumentException("Subject not found"));
+        if (teacherRepository.countByOrganizationIdAndSubjectId(orgId, subjectId) > 0) {
+            throw new IllegalArgumentException("Cannot delete subject that is assigned to teachers");
+        }
+        subjectRepository.delete(s);
+        auditService.record(
+                orgId,
+                current.getId(),
+                "SUBJECT_DELETED",
+                "SUBJECT",
+                subjectId,
+                java.util.Map.of("name", s.getName())
+        );
     }
 
     @GetMapping
@@ -171,12 +346,22 @@ public class SchoolStuffController {
                     : teacherRepository.findAllByOrganizationIdAndSchoolIdIn(orgId, schoolIds);
         }
 
+        Set<UUID> teacherSubjectIds = teachersInScope.stream()
+                .map(Teacher::getSubjectId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<UUID, String> subjectNameById = teacherSubjectIds.isEmpty()
+                ? Map.of()
+                : subjectRepository.findAllByOrganizationIdAndIdIn(orgId, teacherSubjectIds).stream()
+                .collect(Collectors.toMap(Subject::getId, Subject::getName));
+
         for (Teacher t : teachersInScope) {
             User u = null;
             if (t.getUserId() != null) {
                 u = userRepository.findByIdAndOrganizationId(t.getUserId(), orgId).orElse(null);
             }
             School s = schoolById.get(t.getSchoolId());
+            UUID sid = t.getSubjectId();
             result.add(new SchoolStuffSummary(
                     t.getId(),
                     "TEACHER",
@@ -184,7 +369,8 @@ public class SchoolStuffController {
                     u != null ? u.getUsername() : null,
                     u != null ? u.getEmail() : null,
                     u != null ? u.getPhone() : null,
-                    t.getSubject(),
+                    sid,
+                    sid != null ? subjectNameById.get(sid) : null,
                     t.getSchoolId(),
                     s != null ? s.getName() : null,
                     u != null ? u.getCity() : null,
@@ -217,6 +403,7 @@ public class SchoolStuffController {
                     director.getUsername(),
                     director.getEmail(),
                     director.getPhone(),
+                    null,
                     null,
                     s != null ? s.getId() : null,
                     s != null ? s.getName() : null,
@@ -256,6 +443,7 @@ public class SchoolStuffController {
                     null,
                     null,
                     null,
+                    null,
                     u.getCity(),
                     u.getSubCity(),
                     u.getWereda()
@@ -285,7 +473,9 @@ public class SchoolStuffController {
 
         if ("TEACHER".equals(roleName)) {
             if (request.schoolId() == null) throw new IllegalArgumentException("schoolId is required for TEACHER");
-            if (request.subject() == null || request.subject().isBlank()) throw new IllegalArgumentException("subject is required for TEACHER");
+            if (request.subjectId() == null) throw new IllegalArgumentException("subjectId is required for TEACHER");
+            subjectRepository.findByIdAndOrganizationId(request.subjectId(), orgId)
+                    .orElseThrow(() -> new IllegalArgumentException("Subject not found"));
             if (!isSuperAdmin) {
                 schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(request.schoolId(), orgId, current.getId())
                         .orElseThrow(() -> new IllegalArgumentException("School not found in coordinator scope"));
@@ -315,7 +505,7 @@ public class SchoolStuffController {
             Teacher teacher = new Teacher();
             teacher.setOrganizationId(orgId);
             teacher.setName(request.fullName());
-            teacher.setSubject(request.subject());
+            teacher.setSubjectId(request.subjectId());
             teacher.setSchoolId(request.schoolId());
             teacher.setUserId(userId);
 
@@ -419,9 +609,11 @@ public class SchoolStuffController {
             if (request.schoolId() == null) {
                 throw new IllegalArgumentException("schoolId is required for TEACHER");
             }
-            if (request.subject() == null || request.subject().isBlank()) {
-                throw new IllegalArgumentException("subject is required for TEACHER");
+            if (request.subjectId() == null) {
+                throw new IllegalArgumentException("subjectId is required for TEACHER");
             }
+            subjectRepository.findByIdAndOrganizationId(request.subjectId(), orgId)
+                    .orElseThrow(() -> new IllegalArgumentException("Subject not found"));
             if (!isSuperAdmin) {
                 schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(teacher.getSchoolId(), orgId, current.getId())
                         .orElseThrow(() -> new IllegalArgumentException("Teacher not found in coordinator scope"));
@@ -429,7 +621,7 @@ public class SchoolStuffController {
                         .orElseThrow(() -> new IllegalArgumentException("School not found in coordinator scope"));
             }
             teacher.setName(request.fullName().trim());
-            teacher.setSubject(request.subject().trim());
+            teacher.setSubjectId(request.subjectId());
             teacher.setSchoolId(request.schoolId());
             teacherRepository.save(teacher);
             if (teacher.getUserId() != null) {

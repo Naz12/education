@@ -344,6 +344,7 @@ function App() {
     ...(canAdmin
       ? [
           { id: "users", label: "Users" },
+          ...(isSuperAdmin ? [{ id: "locations", label: "Locations" }] : []),
           { id: "checklists", label: "Checklists" },
           { id: "checklist-items", label: "Checklist items" },
           { id: "assignments", label: "Assignments" },
@@ -478,6 +479,7 @@ function App() {
         {activeTab === "my-assignments" && isSupervisorPortal && <SupervisorMyAssignmentsPage headers={authHeaders} />}
         {activeTab === "profile" && <ProfilePage headers={authHeaders} me={me} onProfileUpdated={refreshMe} />}
         {activeTab === "users" && canAdmin && <UsersPage headers={authHeaders} isSuperAdmin={isSuperAdmin} />}
+        {activeTab === "locations" && isSuperAdmin && <GeographyLocationsPage headers={authHeaders} />}
         {activeTab === "checklists" && canAdmin && (
           <ChecklistsPage
             headers={authHeaders}
@@ -739,16 +741,399 @@ function ProfilePage({ headers, me, onProfileUpdated }) {
   );
 }
 
+function LocationWeredaPicker({ headers, cityId, subcityId, weredaId, onChange, disabled }) {
+  const [cities, setCities] = useState([]);
+  const [subcities, setSubcities] = useState([]);
+  const [weredas, setWeredas] = useState([]);
+  useEffect(() => {
+    fetch(`${API_BASE}/admin/geography/cities`, { headers })
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setCities)
+      .catch(() => setCities([]));
+  }, [headers]);
+  useEffect(() => {
+    if (!cityId) {
+      setSubcities([]);
+      return;
+    }
+    fetch(`${API_BASE}/admin/geography/subcities?cityId=${encodeURIComponent(cityId)}`, { headers })
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setSubcities)
+      .catch(() => setSubcities([]));
+  }, [headers, cityId]);
+  useEffect(() => {
+    if (!subcityId) {
+      setWeredas([]);
+      return;
+    }
+    fetch(`${API_BASE}/admin/geography/weredas?subcityId=${encodeURIComponent(subcityId)}`, { headers })
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setWeredas)
+      .catch(() => setWeredas([]));
+  }, [headers, subcityId]);
+  const selStyle = { fontFamily: t.font, width: "100%", padding: "10px 12px", borderRadius: t.radius, border: `1px solid ${t.line}` };
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+      <div>
+        <Label>City</Label>
+        <select
+          value={cityId}
+          disabled={disabled}
+          onChange={(e) => onChange({ cityId: e.target.value, subcityId: "", weredaId: "" })}
+          style={selStyle}
+        >
+          <option value="">Select…</option>
+          {cities.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <Label>Sub city</Label>
+        <select
+          value={subcityId}
+          disabled={disabled || !cityId}
+          onChange={(e) => onChange({ cityId, subcityId: e.target.value, weredaId: "" })}
+          style={selStyle}
+        >
+          <option value="">Select…</option>
+          {subcities.map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <Label>Wereda</Label>
+        <select
+          value={weredaId}
+          disabled={disabled || !subcityId}
+          onChange={(e) => onChange({ cityId, subcityId, weredaId: e.target.value })}
+          style={selStyle}
+        >
+          <option value="">Select…</option>
+          {weredas.map((w) => (
+            <option key={w.id} value={w.id}>{w.name}</option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+function GeographyLocationsPage({ headers }) {
+  const [cities, setCities] = useState([]);
+  const [subcities, setSubcities] = useState([]);
+  const [weredas, setWeredas] = useState([]);
+  const [cityPick, setCityPick] = useState("");
+  const [subPick, setSubPick] = useState("");
+  const [message, setMessage] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [nameModal, setNameModal] = useState({ open: false, kind: "", title: "", id: "", name: "", extraId: "" });
+
+  const loadCities = () =>
+    fetch(`${API_BASE}/admin/geography/cities`, { headers }).then((r) => r.json()).then(setCities);
+  const loadSubcities = (cid) =>
+    fetch(`${API_BASE}/admin/geography/subcities?cityId=${encodeURIComponent(cid)}`, { headers }).then((r) => r.json()).then(setSubcities);
+  const loadWeredas = (sid) =>
+    fetch(`${API_BASE}/admin/geography/weredas?subcityId=${encodeURIComponent(sid)}`, { headers }).then((r) => r.json()).then(setWeredas);
+
+  useEffect(() => {
+    loadCities().catch(() => {});
+  }, [headers]);
+  useEffect(() => {
+    if (!cityPick) {
+      setSubcities([]);
+      setSubPick("");
+      return;
+    }
+    loadSubcities(cityPick).catch(() => {});
+  }, [headers, cityPick]);
+  useEffect(() => {
+    if (!subPick) {
+      setWeredas([]);
+      return;
+    }
+    loadWeredas(subPick).catch(() => {});
+  }, [headers, subPick]);
+
+  const openAdd = (kind) => {
+    if (kind === "subcity" && !cityPick) {
+      setMessage({ type: "error", text: "Select a city first." });
+      return;
+    }
+    if (kind === "wereda" && !subPick) {
+      setMessage({ type: "error", text: "Select a sub city first." });
+      return;
+    }
+    setNameModal({ open: true, kind, title: `Add ${kind === "city" ? "city" : kind === "subcity" ? "sub city" : "wereda"}`, id: "", name: "", extraId: "" });
+  };
+  const openEdit = (kind, row) => {
+    setNameModal({
+      open: true,
+      kind,
+      title: `Edit ${kind === "city" ? "city" : kind === "subcity" ? "sub city" : "wereda"}`,
+      id: row.id,
+      name: row.name || "",
+      extraId: ""
+    });
+  };
+
+  const saveNameModal = async (e) => {
+    e.preventDefault();
+    const { kind, id, name } = nameModal;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      if (kind === "city") {
+        if (id) {
+          const res = await fetch(`${API_BASE}/admin/geography/cities/${id}`, {
+            method: "PATCH",
+            headers: jsonHeaders(headers),
+            body: JSON.stringify({ name: trimmed })
+          });
+          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Update failed");
+        } else {
+          const res = await fetch(`${API_BASE}/admin/geography/cities`, {
+            method: "POST",
+            headers: jsonHeaders(headers),
+            body: JSON.stringify({ name: trimmed })
+          });
+          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Create failed");
+        }
+      } else if (kind === "subcity") {
+        if (id) {
+          const res = await fetch(`${API_BASE}/admin/geography/subcities/${id}`, {
+            method: "PATCH",
+            headers: jsonHeaders(headers),
+            body: JSON.stringify({ name: trimmed })
+          });
+          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Update failed");
+        } else {
+          const res = await fetch(`${API_BASE}/admin/geography/subcities`, {
+            method: "POST",
+            headers: jsonHeaders(headers),
+            body: JSON.stringify({ cityId: cityPick, name: trimmed })
+          });
+          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Create failed");
+        }
+        await loadSubcities(cityPick);
+      } else {
+        if (id) {
+          const res = await fetch(`${API_BASE}/admin/geography/weredas/${id}`, {
+            method: "PATCH",
+            headers: jsonHeaders(headers),
+            body: JSON.stringify({ name: trimmed })
+          });
+          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Update failed");
+        } else {
+          const res = await fetch(`${API_BASE}/admin/geography/weredas`, {
+            method: "POST",
+            headers: jsonHeaders(headers),
+            body: JSON.stringify({ subcityId: subPick, name: trimmed })
+          });
+          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Create failed");
+        }
+        await loadWeredas(subPick);
+      }
+      setNameModal((m) => ({ ...m, open: false }));
+      setMessage({ type: "ok", text: "Saved." });
+      await loadCities();
+      if (cityPick) await loadSubcities(cityPick);
+      if (subPick) await loadWeredas(subPick);
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmDelete = async (kind, id) => {
+    if (!window.confirm("Delete this record? Child areas or linked users/clusters may block deletion.")) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const path =
+        kind === "city"
+          ? `${API_BASE}/admin/geography/cities/${id}`
+          : kind === "subcity"
+            ? `${API_BASE}/admin/geography/subcities/${id}`
+            : `${API_BASE}/admin/geography/weredas/${id}`;
+      const res = await fetch(path, { method: "DELETE", headers });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Delete failed");
+      setMessage({ type: "ok", text: "Deleted." });
+      await loadCities();
+      if (cityPick) await loadSubcities(cityPick);
+      if (subPick) await loadWeredas(subPick);
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <PageHeader
+        title="Locations"
+        subtitle="Cities, sub cities, and weredas (super admin only). Coordinators are assigned to a wereda from this tree."
+      />
+      {message && <Alert type={message.type}>{message.text}</Alert>}
+
+      <section style={{ marginBottom: 28 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0, color: t.muted }}>Cities</h2>
+          <GhostButton onClick={() => openAdd("city")} disabled={busy}>Add city</GhostButton>
+        </div>
+        <DataTable
+          columns={[
+            { key: "name", label: "Name" },
+            { key: "actions", label: "Actions" }
+          ]}
+          rows={cities}
+          empty="No cities."
+          renderCell={(key, row) => {
+            if (key === "actions") {
+              return (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <GhostButton type="button" disabled={busy} onClick={() => openEdit("city", row)}>Edit</GhostButton>
+                  <GhostButton type="button" disabled={busy} onClick={() => confirmDelete("city", row.id)}>Delete</GhostButton>
+                </div>
+              );
+            }
+            return row[key];
+          }}
+        />
+      </section>
+
+      <section style={{ marginBottom: 28 }}>
+        <h2 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 8px", color: t.muted }}>Sub cities</h2>
+        <div style={{ marginBottom: 12 }}>
+          <Label>City</Label>
+          <select
+            value={cityPick}
+            onChange={(e) => { setCityPick(e.target.value); setSubPick(""); }}
+            style={{ fontFamily: t.font, minWidth: 280, padding: "10px 12px", borderRadius: t.radius, border: `1px solid ${t.line}` }}
+          >
+            <option value="">Select city…</option>
+            {cities.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+          <GhostButton onClick={() => openAdd("subcity")} disabled={busy || !cityPick} style={{ marginLeft: 8 }}>Add sub city</GhostButton>
+        </div>
+        <DataTable
+          columns={[
+            { key: "name", label: "Name" },
+            { key: "actions", label: "Actions" }
+          ]}
+          rows={subcities}
+          empty={cityPick ? "No sub cities in this city." : "Select a city."}
+          renderCell={(key, row) => {
+            if (key === "actions") {
+              return (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <GhostButton type="button" disabled={busy} onClick={() => openEdit("subcity", row)}>Edit</GhostButton>
+                  <GhostButton type="button" disabled={busy} onClick={() => confirmDelete("subcity", row.id)}>Delete</GhostButton>
+                </div>
+              );
+            }
+            return row[key];
+          }}
+        />
+      </section>
+
+      <section>
+        <h2 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 8px", color: t.muted }}>Weredas</h2>
+        <div style={{ marginBottom: 12 }}>
+          <Label>Sub city</Label>
+          <select
+            value={subPick}
+            onChange={(e) => setSubPick(e.target.value)}
+            disabled={!cityPick}
+            style={{ fontFamily: t.font, minWidth: 280, padding: "10px 12px", borderRadius: t.radius, border: `1px solid ${t.line}` }}
+          >
+            <option value="">Select sub city…</option>
+            {subcities.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+          <GhostButton onClick={() => openAdd("wereda")} disabled={busy || !subPick} style={{ marginLeft: 8 }}>Add wereda</GhostButton>
+        </div>
+        <DataTable
+          columns={[
+            { key: "name", label: "Name" },
+            { key: "actions", label: "Actions" }
+          ]}
+          rows={weredas}
+          empty={subPick ? "No weredas in this sub city." : "Select a sub city."}
+          renderCell={(key, row) => {
+            if (key === "actions") {
+              return (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <GhostButton type="button" disabled={busy} onClick={() => openEdit("wereda", row)}>Edit</GhostButton>
+                  <GhostButton type="button" disabled={busy} onClick={() => confirmDelete("wereda", row.id)}>Delete</GhostButton>
+                </div>
+              );
+            }
+            return row[key];
+          }}
+        />
+      </section>
+
+      <Modal open={nameModal.open} onClose={() => (!busy ? setNameModal((m) => ({ ...m, open: false })) : null)} title={nameModal.title}>
+        <form onSubmit={saveNameModal} style={{ display: "grid", gap: 12 }}>
+          <div>
+            <Label>Name</Label>
+            <Input value={nameModal.name} onChange={(e) => setNameModal((m) => ({ ...m, name: e.target.value }))} required />
+          </div>
+          <PrimaryButton type="submit" disabled={busy}>{busy ? "Saving…" : "Save"}</PrimaryButton>
+        </form>
+      </Modal>
+    </>
+  );
+}
+
 function UsersPage({ headers, isSuperAdmin }) {
   const [coordinators, setCoordinators] = useState([]);
   const [supervisors, setSupervisors] = useState([]);
   const [coordOpen, setCoordOpen] = useState(false);
   const [supOpen, setSupOpen] = useState(false);
-  const [coordForm, setCoordForm] = useState({ fullName: "", username: "", password: "", email: "", phone: "", city: "", subCity: "", wereda: "" });
-  const [supervisorForm, setSupervisorForm] = useState({ fullName: "", username: "", password: "", email: "", phone: "", city: "", subCity: "", wereda: "" });
+  const [coordForm, setCoordForm] = useState({
+    fullName: "",
+    username: "",
+    password: "",
+    email: "",
+    phone: "",
+    cityId: "",
+    subcityId: "",
+    weredaId: ""
+  });
+  const [supervisorForm, setSupervisorForm] = useState({
+    fullName: "",
+    username: "",
+    password: "",
+    email: "",
+    phone: "",
+    cityId: "",
+    subcityId: "",
+    weredaId: "",
+    supervisedGradeCodes: []
+  });
   const [editUserOpen, setEditUserOpen] = useState(false);
   const [editUserBusy, setEditUserBusy] = useState(false);
-  const [editUserForm, setEditUserForm] = useState({ id: "", kind: "supervisor", fullName: "", email: "", phone: "", city: "", subCity: "", wereda: "" });
+  const [editUserForm, setEditUserForm] = useState({
+    id: "",
+    kind: "supervisor",
+    fullName: "",
+    email: "",
+    phone: "",
+    cityId: "",
+    subcityId: "",
+    weredaId: "",
+    supervisedGradeCodes: []
+  });
   const [deleteUserOpen, setDeleteUserOpen] = useState(false);
   const [deleteUserBusy, setDeleteUserBusy] = useState(false);
   const [deleteUserForm, setDeleteUserForm] = useState({ id: "", kind: "supervisor" });
@@ -766,43 +1151,103 @@ function UsersPage({ headers, isSuperAdmin }) {
 
   const createCoordinator = async (e) => {
     e.preventDefault();
-    const res = await fetch(`${API_BASE}/users/cluster-coordinators`, { method: "POST", headers: jsonHeaders(headers), body: JSON.stringify(coordForm) });
+    if (!coordForm.weredaId) {
+      setMessage({ type: "error", text: "Select city, sub city, and wereda." });
+      return;
+    }
+    const body = {
+      fullName: coordForm.fullName,
+      username: coordForm.username,
+      password: coordForm.password,
+      email: coordForm.email || null,
+      phone: coordForm.phone || null,
+      weredaId: coordForm.weredaId
+    };
+    const res = await fetch(`${API_BASE}/users/cluster-coordinators`, { method: "POST", headers: jsonHeaders(headers), body: JSON.stringify(body) });
     if (!res.ok) {
-      setMessage({ type: "error", text: "Failed to create coordinator." });
+      let details = null;
+      try {
+        details = await res.json();
+      } catch (_) {}
+      setMessage({ type: "error", text: details?.message || "Failed to create coordinator." });
       return;
     }
     setMessage({ type: "ok", text: "Coordinator created." });
-    setCoordForm({ fullName: "", username: "", password: "", email: "", phone: "", city: "", subCity: "", wereda: "" });
+    setCoordForm({
+      fullName: "",
+      username: "",
+      password: "",
+      email: "",
+      phone: "",
+      cityId: "",
+      subcityId: "",
+      weredaId: ""
+    });
     setCoordOpen(false);
     load();
   };
 
   const createSupervisor = async (e) => {
     e.preventDefault();
-    const body = isSuperAdmin
-      ? supervisorForm
-      : { fullName: supervisorForm.fullName, username: supervisorForm.username, password: supervisorForm.password, email: supervisorForm.email, phone: supervisorForm.phone };
+    if (!supervisorForm.supervisedGradeCodes || supervisorForm.supervisedGradeCodes.length === 0) {
+      setMessage({ type: "error", text: "Select at least one grade this supervisor can supervise." });
+      return;
+    }
+    if (isSuperAdmin && !supervisorForm.weredaId) {
+      setMessage({ type: "error", text: "Select city, sub city, and wereda for the supervisor." });
+      return;
+    }
+    const base = {
+      fullName: supervisorForm.fullName,
+      username: supervisorForm.username,
+      password: supervisorForm.password,
+      email: supervisorForm.email || null,
+      phone: supervisorForm.phone || null,
+      supervisedGradeCodes: supervisorForm.supervisedGradeCodes
+    };
+    const body = isSuperAdmin ? { ...base, weredaId: supervisorForm.weredaId } : base;
     const res = await fetch(`${API_BASE}/users/supervisors`, { method: "POST", headers: jsonHeaders(headers), body: JSON.stringify(body) });
     if (!res.ok) {
-      setMessage({ type: "error", text: "Failed to create supervisor." });
+      let details = null;
+      try {
+        details = await res.json();
+      } catch (_) {}
+      setMessage({ type: "error", text: details?.message || "Failed to create supervisor." });
       return;
     }
     setMessage({ type: "ok", text: "Supervisor created." });
-    setSupervisorForm({ fullName: "", username: "", password: "", email: "", phone: "", city: "", subCity: "", wereda: "" });
+    setSupervisorForm({
+      fullName: "",
+      username: "",
+      password: "",
+      email: "",
+      phone: "",
+      cityId: "",
+      subcityId: "",
+      weredaId: "",
+      supervisedGradeCodes: []
+    });
     setSupOpen(false);
     load();
   };
 
   const openEditUser = (row, kind) => {
+    const supGrades =
+      kind === "supervisor"
+        ? Array.isArray(row.supervisedGradeCodes) && row.supervisedGradeCodes.length > 0
+          ? row.supervisedGradeCodes
+          : [...CANONICAL_GRADE_CODES]
+        : [];
     setEditUserForm({
       id: row.id || "",
       kind,
       fullName: row.fullName || "",
       email: row.email || "",
       phone: row.phone || "",
-      city: row.city || "",
-      subCity: row.subCity || "",
-      wereda: row.wereda || ""
+      cityId: row.cityId || "",
+      subcityId: row.subcityId || "",
+      weredaId: row.weredaId || "",
+      supervisedGradeCodes: supGrades
     });
     setEditUserOpen(true);
   };
@@ -810,6 +1255,10 @@ function UsersPage({ headers, isSuperAdmin }) {
   const saveEditUser = async (e) => {
     e.preventDefault();
     if (!editUserForm.id) return;
+    if (editUserForm.kind === "supervisor" && (!editUserForm.supervisedGradeCodes || editUserForm.supervisedGradeCodes.length === 0)) {
+      setMessage({ type: "error", text: "Select at least one supervised grade." });
+      return;
+    }
     setEditUserBusy(true);
     try {
       const endpoint = editUserForm.kind === "coordinator"
@@ -819,11 +1268,12 @@ function UsersPage({ headers, isSuperAdmin }) {
         fullName: editUserForm.fullName,
         email: editUserForm.email || null,
         phone: editUserForm.phone || null,
-        ...(isSuperAdmin ? {
-          city: editUserForm.city || null,
-          subCity: editUserForm.subCity || null,
-          wereda: editUserForm.wereda || null
-        } : {})
+        ...(isSuperAdmin && editUserForm.weredaId
+          ? { weredaId: editUserForm.weredaId }
+          : {}),
+        ...(editUserForm.kind === "supervisor"
+          ? { supervisedGradeCodes: editUserForm.supervisedGradeCodes }
+          : {})
       };
       const res = await fetch(endpoint, { method: "PATCH", headers: jsonHeaders(headers), body: JSON.stringify(body) });
       if (!res.ok) {
@@ -921,12 +1371,19 @@ function UsersPage({ headers, isSuperAdmin }) {
             { key: "fullName", label: "Name" },
             { key: "username", label: "Username" },
             { key: "email", label: "Email" },
+            { key: "grades", label: "Supervised grades" },
             { key: "loc", label: "Location" },
             { key: "actions", label: "Actions" }
           ]}
           rows={supervisors}
           empty="No supervisors yet."
           renderCell={(key, row) => {
+            if (key === "grades") {
+              if (Array.isArray(row.supervisedGradeCodes) && row.supervisedGradeCodes.length > 0) {
+                return row.supervisedGradeCodes.join(", ");
+              }
+              return "All grades (legacy)";
+            }
             if (key === "loc") return [row.city, row.subCity, row.wereda].filter(Boolean).join(" · ") || "—";
             if (key === "actions") {
               return (
@@ -948,11 +1405,14 @@ function UsersPage({ headers, isSuperAdmin }) {
           <div><Label>Password</Label><Input type="password" value={coordForm.password} onChange={(e) => setCoordForm((p) => ({ ...p, password: e.target.value }))} required /></div>
           <div><Label>Email</Label><Input type="email" value={coordForm.email} onChange={(e) => setCoordForm((p) => ({ ...p, email: e.target.value }))} /></div>
           <div><Label>Phone</Label><Input value={coordForm.phone} onChange={(e) => setCoordForm((p) => ({ ...p, phone: e.target.value }))} placeholder="Optional" /></div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-            <div><Label>City</Label><Input value={coordForm.city} onChange={(e) => setCoordForm((p) => ({ ...p, city: e.target.value }))} required /></div>
-            <div><Label>Sub city</Label><Input value={coordForm.subCity} onChange={(e) => setCoordForm((p) => ({ ...p, subCity: e.target.value }))} required /></div>
-            <div><Label>Wereda</Label><Input value={coordForm.wereda} onChange={(e) => setCoordForm((p) => ({ ...p, wereda: e.target.value }))} required /></div>
-          </div>
+          <p style={{ fontSize: 12, color: t.muted, margin: 0 }}>Assign a wereda from the location tree (configure under Locations).</p>
+          <LocationWeredaPicker
+            headers={headers}
+            cityId={coordForm.cityId}
+            subcityId={coordForm.subcityId}
+            weredaId={coordForm.weredaId}
+            onChange={(loc) => setCoordForm((p) => ({ ...p, ...loc }))}
+          />
           <PrimaryButton type="submit">Create</PrimaryButton>
         </form>
       </Modal>
@@ -968,12 +1428,22 @@ function UsersPage({ headers, isSuperAdmin }) {
           <div><Label>Email</Label><Input type="email" value={supervisorForm.email} onChange={(e) => setSupervisorForm((p) => ({ ...p, email: e.target.value }))} /></div>
           <div><Label>Phone</Label><Input value={supervisorForm.phone} onChange={(e) => setSupervisorForm((p) => ({ ...p, phone: e.target.value }))} placeholder="Optional" /></div>
           {isSuperAdmin && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-              <div><Label>City</Label><Input value={supervisorForm.city} onChange={(e) => setSupervisorForm((p) => ({ ...p, city: e.target.value }))} /></div>
-              <div><Label>Sub city</Label><Input value={supervisorForm.subCity} onChange={(e) => setSupervisorForm((p) => ({ ...p, subCity: e.target.value }))} /></div>
-              <div><Label>Wereda</Label><Input value={supervisorForm.wereda} onChange={(e) => setSupervisorForm((p) => ({ ...p, wereda: e.target.value }))} /></div>
-            </div>
+            <>
+              <p style={{ fontSize: 12, color: t.muted, margin: 0 }}>Select the supervisor&apos;s wereda (same tree as Locations).</p>
+              <LocationWeredaPicker
+                headers={headers}
+                cityId={supervisorForm.cityId}
+                subcityId={supervisorForm.subcityId}
+                weredaId={supervisorForm.weredaId}
+                onChange={(loc) => setSupervisorForm((p) => ({ ...p, ...loc }))}
+              />
+            </>
           )}
+          <GradeCodeCheckboxes
+            label="Grades this supervisor can supervise"
+            value={supervisorForm.supervisedGradeCodes}
+            onChange={(codes) => setSupervisorForm((p) => ({ ...p, supervisedGradeCodes: codes }))}
+          />
           <PrimaryButton type="submit">Create</PrimaryButton>
         </form>
       </Modal>
@@ -984,11 +1454,23 @@ function UsersPage({ headers, isSuperAdmin }) {
           <div><Label>Email</Label><Input type="email" value={editUserForm.email} onChange={(e) => setEditUserForm((p) => ({ ...p, email: e.target.value }))} /></div>
           <div><Label>Phone</Label><Input value={editUserForm.phone} onChange={(e) => setEditUserForm((p) => ({ ...p, phone: e.target.value }))} /></div>
           {isSuperAdmin && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-              <div><Label>City</Label><Input value={editUserForm.city} onChange={(e) => setEditUserForm((p) => ({ ...p, city: e.target.value }))} /></div>
-              <div><Label>Sub city</Label><Input value={editUserForm.subCity} onChange={(e) => setEditUserForm((p) => ({ ...p, subCity: e.target.value }))} /></div>
-              <div><Label>Wereda</Label><Input value={editUserForm.wereda} onChange={(e) => setEditUserForm((p) => ({ ...p, wereda: e.target.value }))} /></div>
-            </div>
+            <>
+              <p style={{ fontSize: 12, color: t.muted, margin: 0 }}>Update assigned wereda (optional if unchanged).</p>
+              <LocationWeredaPicker
+                headers={headers}
+                cityId={editUserForm.cityId}
+                subcityId={editUserForm.subcityId}
+                weredaId={editUserForm.weredaId}
+                onChange={(loc) => setEditUserForm((p) => ({ ...p, ...loc }))}
+              />
+            </>
+          )}
+          {editUserForm.kind === "supervisor" && (
+            <GradeCodeCheckboxes
+              label="Grades this supervisor can supervise"
+              value={editUserForm.supervisedGradeCodes}
+              onChange={(codes) => setEditUserForm((p) => ({ ...p, supervisedGradeCodes: codes }))}
+            />
           )}
           <PrimaryButton type="submit" disabled={editUserBusy}>{editUserBusy ? "Saving…" : "Save changes"}</PrimaryButton>
         </form>
@@ -1254,21 +1736,33 @@ function SchoolsPage({ headers }) {
 
 function SchoolStuffPage({ headers, isSuperAdmin }) {
   const [types, setTypes] = useState([]);
+  const [subjects, setSubjects] = useState([]);
   const [items, setItems] = useState([]);
   const [schools, setSchools] = useState([]);
   const [message, setMessage] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
   const [typeMgmtOpen, setTypeMgmtOpen] = useState(false);
+  const [typesManageOpen, setTypesManageOpen] = useState(false);
+  const [subjectsManageOpen, setSubjectsManageOpen] = useState(false);
   const [loadingBusy, setLoadingBusy] = useState(false);
 
   const [selectedTypeId, setSelectedTypeId] = useState("");
   const selectedType = types.find((t) => t.id === selectedTypeId) || null;
 
   const [typeForm, setTypeForm] = useState({ name: "", description: "" });
+  const [editTypeOpen, setEditTypeOpen] = useState(false);
+  const [editTypeForm, setEditTypeForm] = useState({ id: "", name: "", description: "" });
+  const [deleteTypeOpen, setDeleteTypeOpen] = useState(false);
+  const [deleteTypeId, setDeleteTypeId] = useState("");
+  const [subjectForm, setSubjectForm] = useState({ name: "" });
+  const [editSubjectOpen, setEditSubjectOpen] = useState(false);
+  const [editSubjectForm, setEditSubjectForm] = useState({ id: "", name: "" });
+  const [deleteSubjectOpen, setDeleteSubjectOpen] = useState(false);
+  const [deleteSubjectId, setDeleteSubjectId] = useState("");
 
   const [form, setForm] = useState({
     fullName: "",
-    subject: "",
+    subjectId: "",
     schoolId: "",
     username: "",
     password: "",
@@ -1288,7 +1782,7 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
     id: "",
     type: "TEACHER",
     name: "",
-    subject: "",
+    subjectId: "",
     schoolId: "",
     email: "",
     phone: "",
@@ -1302,10 +1796,12 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
 
   const loadSchools = () => fetch(`${API_BASE}/schools`, { headers }).then((r) => r.json()).then(setSchools);
   const loadTypes = () => fetch(`${API_BASE}/school-stuff/types`, { headers }).then((r) => r.json()).then(setTypes);
+  const loadSubjects = () => fetch(`${API_BASE}/school-stuff/subjects`, { headers }).then((r) => r.json()).then(setSubjects);
   const loadItems = () => fetch(`${API_BASE}/school-stuff`, { headers }).then((r) => r.json()).then(setItems);
 
   useEffect(() => {
     loadSchools();
+    loadSubjects().catch(() => {});
     loadTypes().then(() => {
       // Initialize type selection after types load.
       setSelectedTypeId((prev) => prev || (types[0] ? types[0].id : ""));
@@ -1325,7 +1821,7 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
     setForm((p) => ({
       ...p,
       fullName: "",
-      subject: roleName === "TEACHER" ? "" : p.subject,
+      subjectId: roleName === "TEACHER" ? "" : p.subjectId,
       schoolId: filterSchoolId || "",
       username: "",
       password: "",
@@ -1355,7 +1851,7 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
         email: form.email || null,
         phone: form.phone || null,
         schoolId: form.schoolId || null,
-        subject: form.subject || null,
+        subjectId: selectedType?.name === "TEACHER" ? (form.subjectId || null) : null,
         city: form.city || null,
         subCity: form.subCity || null,
         wereda: form.wereda || null
@@ -1370,7 +1866,7 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
       setMessage({ type: "ok", text: "Saved." });
       setForm({
         fullName: "",
-        subject: "",
+        subjectId: "",
         schoolId: "",
         username: "",
         password: "",
@@ -1415,7 +1911,7 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
       id: row.id,
       type: row.type || "TEACHER",
       name: row.fullName || "",
-      subject: row.subject || "",
+      subjectId: row.subjectId || "",
       schoolId: row.schoolId || "",
       email: row.email || "",
       phone: row.phone || "",
@@ -1437,7 +1933,7 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
             headers: jsonHeaders(headers),
             body: JSON.stringify({
               name: editTeacherForm.name,
-              subject: editTeacherForm.subject,
+              subjectId: editTeacherForm.subjectId || null,
               schoolId: editTeacherForm.schoolId
             })
           })
@@ -1447,7 +1943,7 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
             body: JSON.stringify({
               type: editTeacherForm.type,
               fullName: editTeacherForm.name,
-              subject: editTeacherForm.subject || null,
+              subjectId: editTeacherForm.type === "TEACHER" ? (editTeacherForm.subjectId || null) : null,
               schoolId: editTeacherForm.schoolId || null,
               email: editTeacherForm.email || null,
               phone: editTeacherForm.phone || null,
@@ -1501,6 +1997,124 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
     }
   };
 
+  const saveEditType = async (e) => {
+    e.preventDefault();
+    setLoadingBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/school-stuff/types/${editTypeForm.id}`, {
+        method: "PATCH",
+        headers: jsonHeaders(headers),
+        body: JSON.stringify({
+          name: editTypeForm.name.trim().toUpperCase(),
+          description: editTypeForm.description.trim()
+        })
+      });
+      if (!res.ok) {
+        let details = null;
+        try { details = await res.json(); } catch (_) {}
+        throw new Error(details?.message || "Failed to update type.");
+      }
+      setEditTypeOpen(false);
+      setMessage({ type: "ok", text: "Type updated." });
+      await loadTypes();
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      setLoadingBusy(false);
+    }
+  };
+
+  const confirmDeleteType = async (e) => {
+    e.preventDefault();
+    setLoadingBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/school-stuff/types/${deleteTypeId}`, { method: "DELETE", headers });
+      if (!res.ok) {
+        let details = null;
+        try { details = await res.json(); } catch (_) {}
+        throw new Error(details?.message || "Failed to delete type.");
+      }
+      setDeleteTypeOpen(false);
+      setDeleteTypeId("");
+      setMessage({ type: "ok", text: "Type deleted." });
+      await loadTypes();
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      setLoadingBusy(false);
+    }
+  };
+
+  const createSubjectFromMgmt = async (e) => {
+    e.preventDefault();
+    if (!subjectForm.name.trim()) return;
+    setLoadingBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/school-stuff/subjects`, {
+        method: "POST",
+        headers: jsonHeaders(headers),
+        body: JSON.stringify({ name: subjectForm.name.trim() })
+      });
+      if (!res.ok) {
+        let details = null;
+        try { details = await res.json(); } catch (_) {}
+        throw new Error(details?.message || "Failed to add subject.");
+      }
+      setSubjectForm({ name: "" });
+      setMessage({ type: "ok", text: "Subject added." });
+      await loadSubjects();
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      setLoadingBusy(false);
+    }
+  };
+
+  const saveEditSubject = async (e) => {
+    e.preventDefault();
+    setLoadingBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/school-stuff/subjects/${editSubjectForm.id}`, {
+        method: "PATCH",
+        headers: jsonHeaders(headers),
+        body: JSON.stringify({ name: editSubjectForm.name.trim() })
+      });
+      if (!res.ok) {
+        let details = null;
+        try { details = await res.json(); } catch (_) {}
+        throw new Error(details?.message || "Failed to update subject.");
+      }
+      setEditSubjectOpen(false);
+      setMessage({ type: "ok", text: "Subject updated." });
+      await loadSubjects();
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      setLoadingBusy(false);
+    }
+  };
+
+  const confirmDeleteSubject = async (e) => {
+    e.preventDefault();
+    setLoadingBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/school-stuff/subjects/${deleteSubjectId}`, { method: "DELETE", headers });
+      if (!res.ok) {
+        let details = null;
+        try { details = await res.json(); } catch (_) {}
+        throw new Error(details?.message || "Failed to delete subject.");
+      }
+      setDeleteSubjectOpen(false);
+      setDeleteSubjectId("");
+      setMessage({ type: "ok", text: "Subject deleted." });
+      await loadSubjects();
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      setLoadingBusy(false);
+    }
+  };
+
   const visibleItems = items.filter((it) => {
     if (!filterSchoolId) return true;
     if (!it.schoolId) return false;
@@ -1516,6 +2130,8 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <PrimaryButton onClick={openAddStuff}>Add stuff</PrimaryButton>
             <GhostButton onClick={() => setTypeMgmtOpen(true)}>Add type</GhostButton>
+            <GhostButton onClick={() => { setTypesManageOpen(true); loadTypes(); }}>Manage types</GhostButton>
+            <GhostButton onClick={() => { setSubjectsManageOpen(true); loadSubjects(); }}>Manage subjects</GhostButton>
           </div>
         }
       />
@@ -1577,7 +2193,23 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
 
           {selectedType?.name === "TEACHER" && (
             <>
-              <div><Label>Subject</Label><Input value={form.subject} onChange={(e) => setForm((p) => ({ ...p, subject: e.target.value }))} required /></div>
+              <div>
+                <Label>Subject</Label>
+                <select
+                  value={form.subjectId}
+                  onChange={(e) => setForm((p) => ({ ...p, subjectId: e.target.value }))}
+                  required
+                  style={{ fontFamily: t.font, width: "100%", padding: "10px 12px", borderRadius: t.radius, border: `1px solid ${t.line}` }}
+                >
+                  <option value="">Select…</option>
+                  {subjects.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                {subjects.length === 0 && (
+                  <p style={{ margin: "6px 0 0", fontSize: 12, color: t.muted }}>Add subjects under “Manage subjects” first.</p>
+                )}
+              </div>
               <div>
                 <Label>School</Label>
                 <select
@@ -1657,7 +2289,20 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
           <div><Label>Full name</Label><Input value={editTeacherForm.name} onChange={(e) => setEditTeacherForm((p) => ({ ...p, name: e.target.value }))} required /></div>
           {editTeacherForm.type === "TEACHER" && (
             <>
-              <div><Label>Subject</Label><Input value={editTeacherForm.subject} onChange={(e) => setEditTeacherForm((p) => ({ ...p, subject: e.target.value }))} required /></div>
+              <div>
+                <Label>Subject</Label>
+                <select
+                  value={editTeacherForm.subjectId}
+                  onChange={(e) => setEditTeacherForm((p) => ({ ...p, subjectId: e.target.value }))}
+                  required
+                  style={{ fontFamily: t.font, width: "100%", padding: "10px 12px", borderRadius: t.radius, border: `1px solid ${t.line}` }}
+                >
+                  <option value="">Select…</option>
+                  {subjects.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <Label>School</Label>
                 <select
@@ -1716,6 +2361,107 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
           </div>
         </form>
       </Modal>
+
+      <Modal open={typesManageOpen} onClose={() => setTypesManageOpen(false)} title="Staff types" wide>
+        <div style={{ display: "grid", gap: 12 }}>
+          <p style={{ margin: 0, fontSize: 13, color: t.muted }}>System roles (Teacher, Director, etc.) cannot be edited or deleted here. Remove all users from a custom type before deleting it.</p>
+          <DataTable
+            columns={[
+              { key: "name", label: "Name" },
+              { key: "description", label: "Description" },
+              { key: "actions", label: "Actions" }
+            ]}
+            rows={types}
+            empty="No types."
+            renderCell={(key, row) => {
+              if (key === "actions") {
+                const locked = row.systemRole === true;
+                return (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <GhostButton
+                      type="button"
+                      disabled={locked || loadingBusy}
+                      onClick={() => {
+                        setEditTypeForm({ id: row.id, name: row.name || "", description: row.description || "" });
+                        setEditTypeOpen(true);
+                      }}
+                    >Edit</GhostButton>
+                    <GhostButton
+                      type="button"
+                      disabled={locked || loadingBusy}
+                      onClick={() => { setDeleteTypeId(row.id); setDeleteTypeOpen(true); }}
+                    >Delete</GhostButton>
+                  </div>
+                );
+              }
+              return row[key] ?? "—";
+            }}
+          />
+        </div>
+      </Modal>
+
+      <Modal open={editTypeOpen} onClose={() => setEditTypeOpen(false)} title="Edit staff type">
+        <form onSubmit={saveEditType} style={{ display: "grid", gap: 12 }}>
+          <div><Label>Name</Label><Input value={editTypeForm.name} onChange={(e) => setEditTypeForm((p) => ({ ...p, name: e.target.value.toUpperCase() }))} required /></div>
+          <div><Label>Description</Label><Input value={editTypeForm.description} onChange={(e) => setEditTypeForm((p) => ({ ...p, description: e.target.value }))} required /></div>
+          <PrimaryButton type="submit" disabled={loadingBusy}>{loadingBusy ? "Saving…" : "Save"}</PrimaryButton>
+        </form>
+      </Modal>
+
+      <Modal open={deleteTypeOpen} onClose={() => setDeleteTypeOpen(false)} title="Delete staff type?">
+        <form onSubmit={confirmDeleteType} style={{ display: "grid", gap: 12 }}>
+          <p style={{ margin: 0, color: t.muted, fontSize: 14 }}>Only types with no assigned users can be deleted.</p>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <GhostButton type="button" onClick={() => setDeleteTypeOpen(false)} disabled={loadingBusy}>Cancel</GhostButton>
+            <PrimaryButton type="submit" disabled={loadingBusy}>{loadingBusy ? "Deleting…" : "Delete"}</PrimaryButton>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={subjectsManageOpen} onClose={() => setSubjectsManageOpen(false)} title="Subjects" wide>
+        <div style={{ display: "grid", gap: 16 }}>
+          <form onSubmit={createSubjectFromMgmt} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end" }}>
+            <div><Label>New subject</Label><Input value={subjectForm.name} onChange={(e) => setSubjectForm((p) => ({ ...p, name: e.target.value }))} placeholder="e.g. Mathematics" /></div>
+            <PrimaryButton type="submit" disabled={loadingBusy}>Add</PrimaryButton>
+          </form>
+          <DataTable
+            columns={[
+              { key: "name", label: "Name" },
+              { key: "actions", label: "Actions" }
+            ]}
+            rows={subjects}
+            empty="No subjects yet."
+            renderCell={(key, row) => {
+              if (key === "actions") {
+                return (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <GhostButton type="button" disabled={loadingBusy} onClick={() => { setEditSubjectForm({ id: row.id, name: row.name || "" }); setEditSubjectOpen(true); }}>Edit</GhostButton>
+                    <GhostButton type="button" disabled={loadingBusy} onClick={() => { setDeleteSubjectId(row.id); setDeleteSubjectOpen(true); }}>Delete</GhostButton>
+                  </div>
+                );
+              }
+              return row[key] ?? "—";
+            }}
+          />
+        </div>
+      </Modal>
+
+      <Modal open={editSubjectOpen} onClose={() => setEditSubjectOpen(false)} title="Edit subject">
+        <form onSubmit={saveEditSubject} style={{ display: "grid", gap: 12 }}>
+          <div><Label>Name</Label><Input value={editSubjectForm.name} onChange={(e) => setEditSubjectForm((p) => ({ ...p, name: e.target.value }))} required /></div>
+          <PrimaryButton type="submit" disabled={loadingBusy}>{loadingBusy ? "Saving…" : "Save"}</PrimaryButton>
+        </form>
+      </Modal>
+
+      <Modal open={deleteSubjectOpen} onClose={() => setDeleteSubjectOpen(false)} title="Delete subject?">
+        <form onSubmit={confirmDeleteSubject} style={{ display: "grid", gap: 12 }}>
+          <p style={{ margin: 0, color: t.muted, fontSize: 14 }}>Subjects assigned to teachers cannot be deleted.</p>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <GhostButton type="button" onClick={() => setDeleteSubjectOpen(false)} disabled={loadingBusy}>Cancel</GhostButton>
+            <PrimaryButton type="submit" disabled={loadingBusy}>{loadingBusy ? "Deleting…" : "Delete"}</PrimaryButton>
+          </div>
+        </form>
+      </Modal>
     </>
   );
 }
@@ -1723,12 +2469,13 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
 function TeachersPage({ headers, isSuperAdmin }) {
   const [teachers, setTeachers] = useState([]);
   const [schools, setSchools] = useState([]);
+  const [subjects, setSubjects] = useState([]);
   const [filterSchoolId, setFilterSchoolId] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", subject: "", schoolId: "", username: "", password: "", email: "", phone: "", city: "", subCity: "", wereda: "" });
+  const [form, setForm] = useState({ name: "", subjectId: "", schoolId: "", username: "", password: "", email: "", phone: "", city: "", subCity: "", wereda: "" });
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editBusy, setEditBusy] = useState(false);
-  const [editForm, setEditForm] = useState({ id: "", name: "", subject: "", schoolId: "" });
+  const [editForm, setEditForm] = useState({ id: "", name: "", subjectId: "", schoolId: "" });
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteTeacherId, setDeleteTeacherId] = useState("");
@@ -1740,6 +2487,7 @@ function TeachersPage({ headers, isSuperAdmin }) {
   };
   useEffect(() => {
     fetch(`${API_BASE}/schools`, { headers }).then((r) => r.json()).then(setSchools);
+    fetch(`${API_BASE}/school-stuff/subjects`, { headers }).then((r) => r.json()).then(setSubjects).catch(() => {});
   }, [headers]);
   useEffect(() => {
     loadTeachers();
@@ -1749,7 +2497,7 @@ function TeachersPage({ headers, isSuperAdmin }) {
     e.preventDefault();
     const body = isSuperAdmin
       ? form
-      : { name: form.name, subject: form.subject, schoolId: form.schoolId, username: form.username, password: form.password, email: form.email, phone: form.phone };
+      : { name: form.name, subjectId: form.subjectId, schoolId: form.schoolId, username: form.username, password: form.password, email: form.email, phone: form.phone };
     const res = await fetch(`${API_BASE}/teachers`, { method: "POST", headers: jsonHeaders(headers), body: JSON.stringify(body) });
     if (!res.ok) {
       let details = null;
@@ -1760,7 +2508,7 @@ function TeachersPage({ headers, isSuperAdmin }) {
       return;
     }
     setMessage({ type: "ok", text: "Teacher added." });
-    setForm({ name: "", subject: "", schoolId: "", username: "", password: "", email: "", phone: "", city: "", subCity: "", wereda: "" });
+    setForm({ name: "", subjectId: "", schoolId: "", username: "", password: "", email: "", phone: "", city: "", subCity: "", wereda: "" });
     setModalOpen(false);
     loadTeachers();
   };
@@ -1769,7 +2517,7 @@ function TeachersPage({ headers, isSuperAdmin }) {
     setEditForm({
       id: row.id,
       name: row.name ?? "",
-      subject: row.subject ?? "",
+      subjectId: row.subjectId ?? "",
       schoolId: row.schoolId ?? ""
     });
     setEditModalOpen(true);
@@ -1785,7 +2533,7 @@ function TeachersPage({ headers, isSuperAdmin }) {
         headers: jsonHeaders(headers),
         body: JSON.stringify({
           name: editForm.name,
-          subject: editForm.subject,
+          subjectId: editForm.subjectId,
           schoolId: editForm.schoolId
         })
       });
@@ -1880,7 +2628,20 @@ function TeachersPage({ headers, isSuperAdmin }) {
         <form onSubmit={createTeacher} style={{ display: "grid", gap: 12 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div><Label>Full name</Label><Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} required /></div>
-            <div><Label>Subject</Label><Input value={form.subject} onChange={(e) => setForm((p) => ({ ...p, subject: e.target.value }))} required /></div>
+            <div>
+              <Label>Subject</Label>
+              <select
+                required
+                value={form.subjectId}
+                onChange={(e) => setForm((p) => ({ ...p, subjectId: e.target.value }))}
+                style={{ fontFamily: t.font, width: "100%", padding: "10px 12px", borderRadius: t.radius, border: `1px solid ${t.line}` }}
+              >
+                <option value="">Select…</option>
+                {subjects.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div><Label>School</Label>
             <select
@@ -1922,7 +2683,20 @@ function TeachersPage({ headers, isSuperAdmin }) {
         <form onSubmit={saveEditTeacher} style={{ display: "grid", gap: 12 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div><Label>Full name</Label><Input value={editForm.name} onChange={(e) => setEditForm((p) => ({ ...p, name: e.target.value }))} required /></div>
-            <div><Label>Subject</Label><Input value={editForm.subject} onChange={(e) => setEditForm((p) => ({ ...p, subject: e.target.value }))} required /></div>
+            <div>
+              <Label>Subject</Label>
+              <select
+                required
+                value={editForm.subjectId}
+                onChange={(e) => setEditForm((p) => ({ ...p, subjectId: e.target.value }))}
+                style={{ fontFamily: t.font, width: "100%", padding: "10px 12px", borderRadius: t.radius, border: `1px solid ${t.line}` }}
+              >
+                <option value="">Select…</option>
+                {subjects.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div><Label>School</Label>
             <select

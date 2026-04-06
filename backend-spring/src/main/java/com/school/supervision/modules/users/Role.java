@@ -33,4 +33,8 @@ public class Role extends TenantScopedEntity {
     public void setSystemRole(boolean systemRole) {
         this.systemRole = systemRole;
     }
+
+    public boolean isSystemRole() {
+        return systemRole;
+    }
 }

@@ -185,6 +185,32 @@ class ApiClient {
     );
   }
 
+  // --- Super admin: geography (city → sub city → wereda) ---
+
+  static Future<List<dynamic>> fetchGeographyCities() async {
+    final response =
+        await _dio.get('/admin/geography/cities', options: _authOptions());
+    return response.data as List<dynamic>;
+  }
+
+  static Future<List<dynamic>> fetchGeographySubcities(String cityId) async {
+    final response = await _dio.get(
+      '/admin/geography/subcities',
+      queryParameters: {'cityId': cityId},
+      options: _authOptions(),
+    );
+    return response.data as List<dynamic>;
+  }
+
+  static Future<List<dynamic>> fetchGeographyWeredas(String subcityId) async {
+    final response = await _dio.get(
+      '/admin/geography/weredas',
+      queryParameters: {'subcityId': subcityId},
+      options: _authOptions(),
+    );
+    return response.data as List<dynamic>;
+  }
+
   // --- Admin / coordinator: users ---
 
   static Future<List<dynamic>> fetchClusterCoordinators() async {
@@ -295,12 +321,12 @@ class ApiClient {
   static Future<void> patchTeacher({
     required String teacherId,
     required String name,
-    required String subject,
+    required String subjectId,
     required String schoolId,
   }) async {
     await _dio.patch(
       '/teachers/$teacherId',
-      data: {'name': name, 'subject': subject, 'schoolId': schoolId},
+      data: {'name': name, 'subjectId': subjectId, 'schoolId': schoolId},
       options: _authOptions(),
     );
   }
@@ -329,6 +355,52 @@ class ApiClient {
       data: {'name': name, 'description': description},
       options: _authOptions(),
     );
+  }
+
+  static Future<void> patchSchoolStuffType({
+    required String typeId,
+    required String name,
+    required String description,
+  }) async {
+    await _dio.patch(
+      '/school-stuff/types/$typeId',
+      data: {'name': name, 'description': description},
+      options: _authOptions(),
+    );
+  }
+
+  static Future<void> deleteSchoolStuffType(String typeId) async {
+    await _dio.delete('/school-stuff/types/$typeId', options: _authOptions());
+  }
+
+  static Future<List<dynamic>> fetchSchoolStuffSubjects() async {
+    final response =
+        await _dio.get('/school-stuff/subjects', options: _authOptions());
+    return response.data as List<dynamic>;
+  }
+
+  static Future<void> createSchoolStuffSubject({required String name}) async {
+    await _dio.post(
+      '/school-stuff/subjects',
+      data: {'name': name},
+      options: _authOptions(),
+    );
+  }
+
+  static Future<void> patchSchoolStuffSubject({
+    required String subjectId,
+    required String name,
+  }) async {
+    await _dio.patch(
+      '/school-stuff/subjects/$subjectId',
+      data: {'name': name},
+      options: _authOptions(),
+    );
+  }
+
+  static Future<void> deleteSchoolStuffSubject(String subjectId) async {
+    await _dio.delete('/school-stuff/subjects/$subjectId',
+        options: _authOptions());
   }
 
   static Future<void> createSchoolStuff(Map<String, dynamic> body) async {

@@ -16,8 +16,8 @@ public class Teacher extends TenantScopedEntity {
     private UUID userId;
     @Column(nullable = false)
     private String name;
-    @Column(nullable = false)
-    private String subject;
+    @Column(name = "subject_id", nullable = false)
+    private UUID subjectId;
 
     public UUID getSchoolId() {
         return schoolId;
@@ -43,11 +43,11 @@ public class Teacher extends TenantScopedEntity {
         this.name = name;
     }
 
-    public String getSubject() {
-        return subject;
+    public UUID getSubjectId() {
+        return subjectId;
     }
 
-    public void setSubject(String subject) {
-        this.subject = subject;
+    public void setSubjectId(UUID subjectId) {
+        this.subjectId = subjectId;
     }
 }

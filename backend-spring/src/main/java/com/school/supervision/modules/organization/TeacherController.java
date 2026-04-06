@@ -23,8 +23,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -35,6 +37,7 @@ public class TeacherController {
     private final SchoolRepository schoolRepository;
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
+    private final SubjectRepository subjectRepository;
     private final PasswordEncoder passwordEncoder;
     private final AssignmentRepository assignmentRepository;
     private final AuditService auditService;
@@ -43,6 +46,7 @@ public class TeacherController {
                              SchoolRepository schoolRepository,
                              UserRepository userRepository,
                              RoleRepository roleRepository,
+                             SubjectRepository subjectRepository,
                              PasswordEncoder passwordEncoder,
                              AssignmentRepository assignmentRepository,
                              AuditService auditService) {
@@ -50,15 +54,24 @@ public class TeacherController {
         this.schoolRepository = schoolRepository;
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
+        this.subjectRepository = subjectRepository;
         this.passwordEncoder = passwordEncoder;
         this.assignmentRepository = assignmentRepository;
         this.auditService = auditService;
     }
 
-    public record TeacherSummary(UUID id, String name, String subject, UUID schoolId, String schoolName, UUID userId) {}
+    public record TeacherSummary(
+            UUID id,
+            String name,
+            UUID subjectId,
+            String subject,
+            UUID schoolId,
+            String schoolName,
+            UUID userId
+    ) {}
     public record CreateTeacherRequest(
             @NotBlank String name,
-            @NotBlank String subject,
+            @NotNull UUID subjectId,
             @NotNull UUID schoolId,
             String username,
             String password,
@@ -71,7 +84,7 @@ public class TeacherController {
 
     public record UpdateTeacherRequest(
             @NotBlank String name,
-            @NotBlank String subject,
+            @NotNull UUID subjectId,
             @NotNull UUID schoolId
     ) {}
 
@@ -101,11 +114,22 @@ public class TeacherController {
                 : schoolRepository.findAllByOrganizationIdAndCoordinatorUserId(orgId, current.getId());
         Map<UUID, String> schoolNames = schoolsForNames.stream()
                 .collect(Collectors.toMap(School::getId, School::getName, (a, b) -> a));
+        Set<UUID> subjectIds = new HashSet<>();
+        for (Teacher t : teachers) {
+            if (t.getSubjectId() != null) {
+                subjectIds.add(t.getSubjectId());
+            }
+        }
+        Map<UUID, String> subjectNames = subjectIds.isEmpty()
+                ? Map.of()
+                : subjectRepository.findAllByOrganizationIdAndIdIn(orgId, subjectIds).stream()
+                .collect(Collectors.toMap(Subject::getId, Subject::getName));
         return teachers.stream()
                 .map(t -> new TeacherSummary(
                         t.getId(),
                         t.getName(),
-                        t.getSubject(),
+                        t.getSubjectId(),
+                        subjectNames.get(t.getSubjectId()),
                         t.getSchoolId(),
                         schoolNames.get(t.getSchoolId()),
                         t.getUserId()))
@@ -121,6 +145,8 @@ public class TeacherController {
             schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(request.schoolId(), orgId, current.getId())
                     .orElseThrow(() -> new IllegalArgumentException("School not found in coordinator scope"));
         }
+        subjectRepository.findByIdAndOrganizationId(request.subjectId(), orgId)
+                .orElseThrow(() -> new IllegalArgumentException("Subject not found"));
         UUID userId = null;
         if (request.username() != null && !request.username().isBlank() && request.password() != null && !request.password().isBlank()) {
             Role teacherRole = roleRepository.findByOrganizationIdAndName(orgId, "TEACHER")
@@ -147,7 +173,7 @@ public class TeacherController {
         Teacher teacher = new Teacher();
         teacher.setOrganizationId(orgId);
         teacher.setName(request.name());
-        teacher.setSubject(request.subject());
+        teacher.setSubjectId(request.subjectId());
         teacher.setSchoolId(request.schoolId());
         teacher.setUserId(userId);
         UUID id = teacherRepository.save(teacher).getId();
@@ -181,8 +207,11 @@ public class TeacherController {
                     .orElseThrow(() -> new IllegalArgumentException("School not found in coordinator scope"));
         }
 
+        subjectRepository.findByIdAndOrganizationId(request.subjectId(), orgId)
+                .orElseThrow(() -> new IllegalArgumentException("Subject not found"));
+
         teacher.setName(request.name());
-        teacher.setSubject(request.subject());
+        teacher.setSubjectId(request.subjectId());
         teacher.setSchoolId(request.schoolId());
         teacherRepository.save(teacher);
 

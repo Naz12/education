@@ -22,4 +22,9 @@ public interface UserRepository extends TenantAwareRepository<User, UUID> {
 
     @Query("SELECT DISTINCT u FROM User u JOIN u.roles r WHERE u.organizationId = :orgId AND r.name = 'SUPERVISOR' AND u.coordinatorUserId = :coordId")
     List<User> findSupervisorsForCoordinator(@Param("orgId") UUID organizationId, @Param("coordId") UUID coordinatorUserId);
+
+    @Query("SELECT COUNT(DISTINCT u.id) FROM User u JOIN u.roles r WHERE u.organizationId = :orgId AND r.id = :roleId")
+    long countByOrganizationIdAndRoleId(@Param("orgId") UUID organizationId, @Param("roleId") UUID roleId);
+
+    long countByOrganizationIdAndWeredaId(UUID organizationId, UUID weredaId);
 }

@@ -1,10 +1,16 @@
 package com.school.supervision.modules.assignments;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.school.supervision.common.domain.DomainEnums.AssignmentStatus;
 import com.school.supervision.common.domain.DomainEnums.TargetType;
+import com.school.supervision.common.grades.GradeCodes;
 import com.school.supervision.common.tenant.TenantContext;
+import com.school.supervision.modules.checklists.Checklist;
 import com.school.supervision.modules.checklists.ChecklistDtos;
+import com.school.supervision.modules.checklists.ChecklistRepository;
 import com.school.supervision.modules.checklists.ChecklistService;
+import com.school.supervision.modules.checklists.GradeGroupRepository;
+import com.school.supervision.modules.organization.School;
 import com.school.supervision.modules.organization.SchoolRepository;
 import com.school.supervision.modules.organization.Teacher;
 import com.school.supervision.modules.organization.TeacherRepository;
@@ -21,6 +27,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
@@ -33,6 +40,9 @@ public class AssignmentController {
     private final SchoolRepository schoolRepository;
     private final TeacherRepository teacherRepository;
     private final AuditService auditService;
+    private final ChecklistRepository checklistRepository;
+    private final GradeGroupRepository gradeGroupRepository;
+    private final ObjectMapper objectMapper;
 
     public AssignmentController(AssignmentRepository assignmentRepository,
                                 ChecklistService checklistService,
@@ -40,7 +50,10 @@ public class AssignmentController {
                                 UserRepository userRepository,
                                 SchoolRepository schoolRepository,
                                 TeacherRepository teacherRepository,
-                                AuditService auditService) {
+                                AuditService auditService,
+                                ChecklistRepository checklistRepository,
+                                GradeGroupRepository gradeGroupRepository,
+                                ObjectMapper objectMapper) {
         this.assignmentRepository = assignmentRepository;
         this.checklistService = checklistService;
         this.reviewService = reviewService;
@@ -48,6 +61,9 @@ public class AssignmentController {
         this.schoolRepository = schoolRepository;
         this.teacherRepository = teacherRepository;
         this.auditService = auditService;
+        this.checklistRepository = checklistRepository;
+        this.gradeGroupRepository = gradeGroupRepository;
+        this.objectMapper = objectMapper;
     }
 
     public record CreateAssignmentRequest(
@@ -89,15 +105,16 @@ public class AssignmentController {
         User currentUser = requireCurrentUser(authentication);
         requireAdminOrCoordinator(currentUser);
         UUID orgId = requireTenant();
+        User supervisorUser = userRepository.findByIdAndOrganizationId(request.supervisorId(), orgId)
+                .orElseThrow(() -> new IllegalArgumentException("Supervisor not found"));
         if (!isSuperAdmin(currentUser)) {
-            User supervisor = userRepository.findByIdAndOrganizationId(request.supervisorId(), orgId)
-                    .orElseThrow(() -> new IllegalArgumentException("Supervisor not found"));
-            if (!currentUser.getId().equals(supervisor.getCoordinatorUserId())) {
+            if (!currentUser.getId().equals(supervisorUser.getCoordinatorUserId())) {
                 throw new IllegalArgumentException("Supervisor is outside coordinator scope");
             }
         }
         ResolvedTargets targets = validateAndResolveTargets(
                 request.targetType(), request.schoolId(), request.teacherId(), request.staffUserId(), orgId, currentUser);
+        assertSupervisorCoversAssignment(orgId, request.checklistId(), targets, supervisorUser);
         Assignment assignment = new Assignment();
         assignment.setOrganizationId(orgId);
         assignment.setChecklistId(request.checklistId());
@@ -142,15 +159,16 @@ public class AssignmentController {
         }
 
         UUID orgId = requireTenant();
+        User supervisorUser = userRepository.findByIdAndOrganizationId(request.supervisorId(), orgId)
+                .orElseThrow(() -> new IllegalArgumentException("Supervisor not found"));
         if (!isSuperAdmin(currentUser)) {
-            User supervisor = userRepository.findByIdAndOrganizationId(request.supervisorId(), orgId)
-                    .orElseThrow(() -> new IllegalArgumentException("Supervisor not found"));
-            if (!currentUser.getId().equals(supervisor.getCoordinatorUserId())) {
+            if (!currentUser.getId().equals(supervisorUser.getCoordinatorUserId())) {
                 throw new IllegalArgumentException("Supervisor is outside coordinator scope");
             }
         }
         ResolvedTargets targets = validateAndResolveTargets(
                 request.targetType(), request.schoolId(), request.teacherId(), request.staffUserId(), orgId, currentUser);
+        assertSupervisorCoversAssignment(orgId, request.checklistId(), targets, supervisorUser);
 
         assignment.setChecklistId(request.checklistId());
         assignment.setChecklistVersionId(request.checklistVersionId());
@@ -333,5 +351,32 @@ public class AssignmentController {
                 yield new ResolvedTargets(schoolId, null, staffUserId);
             }
         };
+    }
+
+    private void assertSupervisorCoversAssignment(UUID orgId,
+                                                  UUID checklistId,
+                                                  ResolvedTargets targets,
+                                                  User supervisor) {
+        boolean isSupervisor = supervisor.getRoles().stream().anyMatch(r -> "SUPERVISOR".equals(r.getName()));
+        if (!isSupervisor) {
+            throw new IllegalArgumentException("Selected user is not a supervisor");
+        }
+        UUID schoolId = targets.schoolId();
+        if (schoolId == null) {
+            return;
+        }
+        School school = schoolRepository.findByIdAndOrganizationId(schoolId, orgId)
+                .orElseThrow(() -> new IllegalArgumentException("School not found"));
+        Checklist checklist = checklistRepository.findByIdAndOrganizationId(checklistId, orgId)
+                .orElseThrow(() -> new IllegalArgumentException("Checklist not found"));
+        Set<String> scope = AssignmentGradeScope.resolve(objectMapper, school, checklist, gradeGroupRepository);
+        if (scope.isEmpty()) {
+            return;
+        }
+        Set<String> supGrades = supervisor.effectiveSupervisedGrades(objectMapper);
+        if (!GradeCodes.overlaps(supGrades, scope)) {
+            throw new IllegalArgumentException(
+                    "Supervisor's supervised grades do not overlap this school and checklist grade scope.");
+        }
     }
 }

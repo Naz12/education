@@ -89,7 +89,7 @@ public class AssignmentAutoAssignmentService {
                     organizationId, checklist.getId(), school.getId(), OPEN)) {
                 continue;
             }
-            User supervisor = pickSupervisor(supervisors, organizationId);
+            User supervisor = pickSupervisor(supervisors, school, checklist, organizationId);
             if (supervisor == null) {
                 continue;
             }
@@ -137,8 +137,16 @@ public class AssignmentAutoAssignmentService {
         return userRepository.findSupervisorsInOrganization(organizationId);
     }
 
-    private User pickSupervisor(List<User> supervisors, UUID organizationId) {
-        return supervisors.stream()
+    private User pickSupervisor(List<User> supervisors, School school, Checklist checklist, UUID organizationId) {
+        java.util.Set<String> scope = AssignmentGradeScope.resolve(objectMapper, school, checklist, gradeGroupRepository);
+        List<User> eligible = supervisors.stream()
+                .filter(u -> scope.isEmpty()
+                        || GradeCodes.overlaps(u.effectiveSupervisedGrades(objectMapper), scope))
+                .toList();
+        if (eligible.isEmpty()) {
+            return null;
+        }
+        return eligible.stream()
                 .min(Comparator.comparingLong(u -> openAssignmentLoad(u.getId(), organizationId)))
                 .orElse(null);
     }

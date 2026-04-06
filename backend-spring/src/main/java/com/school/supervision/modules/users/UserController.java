@@ -1,11 +1,16 @@
 package com.school.supervision.modules.users;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.school.supervision.common.grades.GradeCodes;
 import com.school.supervision.common.tenant.TenantContext;
 import com.school.supervision.modules.assignments.AssignmentRepository;
 import com.school.supervision.modules.organization.SchoolRepository;
 import com.school.supervision.modules.supervision.SupervisionStatsService;
+import com.school.supervision.modules.organization.GeographyService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.access.AccessDeniedException;
@@ -26,19 +31,25 @@ public class UserController {
     private final SupervisionStatsService supervisionStatsService;
     private final SchoolRepository schoolRepository;
     private final AssignmentRepository assignmentRepository;
+    private final ObjectMapper objectMapper;
+    private final GeographyService geographyService;
 
     public UserController(UserRepository userRepository,
                           RoleRepository roleRepository,
                           PasswordEncoder passwordEncoder,
                           SupervisionStatsService supervisionStatsService,
                           SchoolRepository schoolRepository,
-                          AssignmentRepository assignmentRepository) {
+                          AssignmentRepository assignmentRepository,
+                          ObjectMapper objectMapper,
+                          GeographyService geographyService) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.passwordEncoder = passwordEncoder;
         this.supervisionStatsService = supervisionStatsService;
         this.schoolRepository = schoolRepository;
         this.assignmentRepository = assignmentRepository;
+        this.objectMapper = objectMapper;
+        this.geographyService = geographyService;
     }
 
     public record CreateUserRequest(@NotBlank String username,
@@ -48,7 +59,9 @@ public class UserController {
                                     String phone,
                                     String city,
                                     String subCity,
-                                    String wereda) {}
+                                    String wereda,
+                                    List<String> supervisedGradeCodes,
+                                    java.util.UUID weredaId) {}
     public record UserProfileResponse(UUID id,
                                       String username,
                                       String fullName,
@@ -56,7 +69,20 @@ public class UserController {
                                       String city,
                                       String subCity,
                                       String wereda,
-                                      List<String> roles) {}
+                                      UUID cityId,
+                                      UUID subcityId,
+                                      UUID weredaId,
+                                      List<String> roles,
+                                      List<String> supervisedGradeCodes) {}
+
+    public record CreateClusterCoordinatorRequest(
+            @NotBlank String username,
+            @NotBlank String password,
+            @NotBlank String fullName,
+            String email,
+            String phone,
+            @NotNull UUID weredaId
+    ) {}
 
     public record UpdateMyProfileRequest(String fullName, String email, String city, String subCity, String wereda) {}
 
@@ -70,7 +96,9 @@ public class UserController {
             String phone,
             String city,
             String subCity,
-            String wereda
+            String wereda,
+            List<String> supervisedGradeCodes,
+            UUID weredaId
     ) {}
 
     @PostMapping
@@ -174,14 +202,10 @@ public class UserController {
     }
 
     @PostMapping("/cluster-coordinators")
-    public UUID createClusterCoordinator(Authentication authentication, @RequestBody CreateUserRequest request) {
+    public UUID createClusterCoordinator(Authentication authentication,
+                                         @Valid @RequestBody CreateClusterCoordinatorRequest request) {
         User current = requireCurrentUser(authentication);
         requireSuperAdmin(current);
-        if (request.city() == null || request.city().isBlank()
-                || request.subCity() == null || request.subCity().isBlank()
-                || request.wereda() == null || request.wereda().isBlank()) {
-            throw new IllegalArgumentException("Cluster coordinator requires city, sub city, and wereda");
-        }
         Role coordinatorRole = roleRepository.findByOrganizationIdAndName(requireTenant(), "CLUSTER_COORDINATOR")
                 .orElseThrow(() -> new IllegalArgumentException("Role CLUSTER_COORDINATOR not found"));
         User user = new User();
@@ -191,9 +215,7 @@ public class UserController {
         user.setFullName(request.fullName());
         user.setEmail(request.email());
         user.setPhone(request.phone());
-        user.setCity(request.city());
-        user.setSubCity(request.subCity());
-        user.setWereda(request.wereda());
+        geographyService.applyWeredaToUser(user, request.weredaId());
         user.getRoles().add(coordinatorRole);
         return userRepository.save(user).getId();
     }
@@ -212,14 +234,37 @@ public class UserController {
         user.setEmail(request.email());
         user.setPhone(request.phone());
         if (isSuperAdmin(current)) {
-            user.setCity(request.city());
-            user.setSubCity(request.subCity());
-            user.setWereda(request.wereda());
+            if (request.weredaId() != null) {
+                geographyService.applyWeredaToUser(user, request.weredaId());
+            } else if (request.city() != null && !request.city().isBlank()
+                    && request.subCity() != null && !request.subCity().isBlank()
+                    && request.wereda() != null && !request.wereda().isBlank()) {
+                user.setCity(request.city());
+                user.setSubCity(request.subCity());
+                user.setWereda(request.wereda());
+            } else {
+                throw new IllegalArgumentException("Super admin must select a wereda or provide city, sub city, and wereda");
+            }
         } else {
             user.setCity(current.getCity());
             user.setSubCity(current.getSubCity());
             user.setWereda(current.getWereda());
+            user.setCityId(current.getCityId());
+            user.setSubcityId(current.getSubcityId());
+            user.setWeredaId(current.getWeredaId());
             user.setCoordinatorUserId(current.getId());
+        }
+        if (request.supervisedGradeCodes() == null || request.supervisedGradeCodes().isEmpty()) {
+            throw new IllegalArgumentException("Select at least one grade the supervisor can supervise");
+        }
+        Set<String> gradeNorm = GradeCodes.normalize(request.supervisedGradeCodes());
+        if (gradeNorm.isEmpty()) {
+            throw new IllegalArgumentException("No valid grade codes in supervisedGradeCodes");
+        }
+        try {
+            user.setSupervisedGradeCodesJson(objectMapper.writeValueAsString(GradeCodes.sortForDisplay(gradeNorm)));
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("Could not store supervised grades");
         }
         user.getRoles().add(supervisorRole);
         return userRepository.save(user).getId();
@@ -369,17 +414,38 @@ public class UserController {
             user.setPhone(v.isEmpty() ? null : v);
         }
         if (allowLocationUpdate) {
-            if (request.city() != null) {
-                String v = request.city().trim();
-                user.setCity(v.isEmpty() ? null : v);
+            if (request.weredaId() != null) {
+                geographyService.applyWeredaToUser(user, request.weredaId());
+            } else {
+                if (request.city() != null) {
+                    String v = request.city().trim();
+                    user.setCity(v.isEmpty() ? null : v);
+                }
+                if (request.subCity() != null) {
+                    String v = request.subCity().trim();
+                    user.setSubCity(v.isEmpty() ? null : v);
+                }
+                if (request.wereda() != null) {
+                    String v = request.wereda().trim();
+                    user.setWereda(v.isEmpty() ? null : v);
+                }
             }
-            if (request.subCity() != null) {
-                String v = request.subCity().trim();
-                user.setSubCity(v.isEmpty() ? null : v);
-            }
-            if (request.wereda() != null) {
-                String v = request.wereda().trim();
-                user.setWereda(v.isEmpty() ? null : v);
+        }
+        if (request.supervisedGradeCodes() != null) {
+            boolean isSupervisor = user.getRoles().stream().anyMatch(r -> "SUPERVISOR".equals(r.getName()));
+            if (isSupervisor) {
+                if (request.supervisedGradeCodes().isEmpty()) {
+                    throw new IllegalArgumentException("Select at least one grade the supervisor can supervise");
+                }
+                Set<String> gradeNorm = GradeCodes.normalize(request.supervisedGradeCodes());
+                if (gradeNorm.isEmpty()) {
+                    throw new IllegalArgumentException("No valid grade codes in supervisedGradeCodes");
+                }
+                try {
+                    user.setSupervisedGradeCodesJson(objectMapper.writeValueAsString(GradeCodes.sortForDisplay(gradeNorm)));
+                } catch (JsonProcessingException e) {
+                    throw new IllegalArgumentException("Could not store supervised grades");
+                }
             }
         }
     }
@@ -393,7 +459,24 @@ public class UserController {
                 user.getCity(),
                 user.getSubCity(),
                 user.getWereda(),
-                user.getRoles().stream().map(Role::getName).toList()
+                user.getCityId(),
+                user.getSubcityId(),
+                user.getWeredaId(),
+                user.getRoles().stream().map(Role::getName).toList(),
+                supervisorGradesForApi(user)
         );
+    }
+
+    /** Explicit supervised grades, or null when unset (treated as all grades for legacy supervisors). */
+    private List<String> supervisorGradesForApi(User user) {
+        boolean isSupervisor = user.getRoles().stream().anyMatch(r -> "SUPERVISOR".equals(r.getName()));
+        if (!isSupervisor) {
+            return null;
+        }
+        Set<String> n = GradeCodes.normalize(GradeCodes.parseJsonArray(objectMapper, user.getSupervisedGradeCodesJson()));
+        if (n.isEmpty()) {
+            return null;
+        }
+        return GradeCodes.sortForDisplay(n);
     }
 }

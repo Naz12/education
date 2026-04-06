@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../core/auth/session_store.dart';
+import '../../core/grades/grade_codes.dart';
 import '../../core/network/api_client.dart';
+import '../../core/widgets/grade_code_picker.dart';
+import '../../core/widgets/location_wereda_picker.dart';
 
 class UsersAdminScreen extends StatefulWidget {
   const UsersAdminScreen({super.key});
@@ -46,79 +49,90 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
     final password = TextEditingController();
     final email = TextEditingController();
     final phone = TextEditingController();
-    final city = TextEditingController();
-    final subCity = TextEditingController();
-    final wereda = TextEditingController();
+    final locIds = <String>['', '', ''];
     await showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('New cluster coordinator'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                  controller: fullName,
-                  decoration: const InputDecoration(labelText: 'Full name')),
-              TextField(
-                  controller: username,
-                  decoration: const InputDecoration(labelText: 'Username')),
-              TextField(
-                  controller: password,
-                  obscureText: true,
-                  decoration: const InputDecoration(labelText: 'Password')),
-              TextField(
-                  controller: email,
-                  decoration: const InputDecoration(labelText: 'Email')),
-              TextField(
-                  controller: phone,
-                  decoration: const InputDecoration(labelText: 'Phone')),
-              TextField(
-                  controller: city,
-                  decoration: const InputDecoration(labelText: 'City')),
-              TextField(
-                  controller: subCity,
-                  decoration: const InputDecoration(labelText: 'Sub city')),
-              TextField(
-                  controller: wereda,
-                  decoration: const InputDecoration(labelText: 'Wereda')),
-            ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('New cluster coordinator'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                    controller: fullName,
+                    decoration: const InputDecoration(labelText: 'Full name')),
+                TextField(
+                    controller: username,
+                    decoration: const InputDecoration(labelText: 'Username')),
+                TextField(
+                    controller: password,
+                    obscureText: true,
+                    decoration: const InputDecoration(labelText: 'Password')),
+                TextField(
+                    controller: email,
+                    decoration: const InputDecoration(labelText: 'Email')),
+                TextField(
+                    controller: phone,
+                    decoration: const InputDecoration(labelText: 'Phone')),
+                const SizedBox(height: 8),
+                Text('Assign wereda',
+                    style: TextStyle(
+                        color: Colors.grey.shade700,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                LocationWeredaPicker(
+                  key: const ValueKey('new_coord_loc'),
+                  initialCityId: '',
+                  initialSubcityId: '',
+                  initialWeredaId: '',
+                  onChanged: (c, s, w) => setD(() {
+                    locIds[0] = c;
+                    locIds[1] = s;
+                    locIds[2] = w;
+                  }),
+                ),
+              ],
+            ),
           ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () async {
+                if (locIds[2].isEmpty) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+                      content: Text('Select city, sub city, and wereda')));
+                  return;
+                }
+                try {
+                  await ApiClient.createClusterCoordinator({
+                    'fullName': fullName.text.trim(),
+                    'username': username.text.trim(),
+                    'password': password.text,
+                    'email':
+                        email.text.trim().isEmpty ? null : email.text.trim(),
+                    'phone':
+                        phone.text.trim().isEmpty ? null : phone.text.trim(),
+                    'weredaId': locIds[2],
+                  });
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  _load();
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Coordinator created')));
+                  }
+                } catch (e) {
+                  if (ctx.mounted) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                        SnackBar(content: Text(ApiClient.messageFromError(e))));
+                  }
+                }
+              },
+              child: const Text('Create'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () async {
-              try {
-                await ApiClient.createClusterCoordinator({
-                  'fullName': fullName.text.trim(),
-                  'username': username.text.trim(),
-                  'password': password.text,
-                  'email': email.text.trim().isEmpty ? null : email.text.trim(),
-                  'phone': phone.text.trim().isEmpty ? null : phone.text.trim(),
-                  'city': city.text.trim().isEmpty ? null : city.text.trim(),
-                  'subCity':
-                      subCity.text.trim().isEmpty ? null : subCity.text.trim(),
-                  'wereda':
-                      wereda.text.trim().isEmpty ? null : wereda.text.trim(),
-                });
-                if (ctx.mounted) Navigator.pop(ctx);
-                _load();
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Coordinator created')));
-                }
-              } catch (e) {
-                if (ctx.mounted) {
-                  ScaffoldMessenger.of(ctx).showSnackBar(
-                      SnackBar(content: Text(ApiClient.messageFromError(e))));
-                }
-              }
-            },
-            child: const Text('Create'),
-          ),
-        ],
       ),
     );
   }
@@ -130,59 +144,66 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
         TextEditingController(text: row['fullName']?.toString() ?? '');
     final email = TextEditingController(text: row['email']?.toString() ?? '');
     final phone = TextEditingController(text: row['phone']?.toString() ?? '');
-    final city = TextEditingController(text: row['city']?.toString() ?? '');
-    final subCity =
-        TextEditingController(text: row['subCity']?.toString() ?? '');
-    final wereda = TextEditingController(text: row['wereda']?.toString() ?? '');
+    final locIds = <String>[
+      row['cityId']?.toString() ?? '',
+      row['subcityId']?.toString() ?? '',
+      row['weredaId']?.toString() ?? '',
+    ];
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Edit coordinator'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                  controller: fullName,
-                  decoration: const InputDecoration(labelText: 'Full name')),
-              TextField(
-                  controller: email,
-                  decoration: const InputDecoration(labelText: 'Email')),
-              TextField(
-                  controller: phone,
-                  decoration: const InputDecoration(labelText: 'Phone')),
-              TextField(
-                  controller: city,
-                  decoration: const InputDecoration(labelText: 'City')),
-              TextField(
-                  controller: subCity,
-                  decoration: const InputDecoration(labelText: 'Sub city')),
-              TextField(
-                  controller: wereda,
-                  decoration: const InputDecoration(labelText: 'Wereda')),
-            ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('Edit coordinator'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                    controller: fullName,
+                    decoration: const InputDecoration(labelText: 'Full name')),
+                TextField(
+                    controller: email,
+                    decoration: const InputDecoration(labelText: 'Email')),
+                TextField(
+                    controller: phone,
+                    decoration: const InputDecoration(labelText: 'Phone')),
+                const SizedBox(height: 8),
+                LocationWeredaPicker(
+                  key: ValueKey('edit_coord_$id'),
+                  initialCityId: locIds[0],
+                  initialSubcityId: locIds[1],
+                  initialWeredaId: locIds[2],
+                  onChanged: (c, s, w) => setD(() {
+                    locIds[0] = c;
+                    locIds[1] = s;
+                    locIds[2] = w;
+                  }),
+                ),
+              ],
+            ),
           ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Save')),
+          ],
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Save')),
-        ],
       ),
     );
     if (ok != true) return;
     try {
-      await ApiClient.patchClusterCoordinator(id, {
+      final body = <String, dynamic>{
         'fullName': fullName.text.trim(),
         'email': email.text.trim().isEmpty ? null : email.text.trim(),
         'phone': phone.text.trim().isEmpty ? null : phone.text.trim(),
-        'city': city.text.trim().isEmpty ? null : city.text.trim(),
-        'subCity': subCity.text.trim().isEmpty ? null : subCity.text.trim(),
-        'wereda': wereda.text.trim().isEmpty ? null : wereda.text.trim(),
-      });
+      };
+      if (locIds[2].isNotEmpty) {
+        body['weredaId'] = locIds[2];
+      }
+      await ApiClient.patchClusterCoordinator(id, body);
       await _load();
       if (mounted)
         ScaffoldMessenger.of(context)
@@ -231,101 +252,134 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
     final password = TextEditingController();
     final email = TextEditingController();
     final phone = TextEditingController();
-    final city = TextEditingController();
-    final subCity = TextEditingController();
-    final wereda = TextEditingController();
+    final locIds = <String>['', '', ''];
+    final gradeHolder = <Set<String>>[<String>{}];
     await showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('New supervisor'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                  controller: fullName,
-                  decoration: const InputDecoration(labelText: 'Full name')),
-              TextField(
-                  controller: username,
-                  decoration: const InputDecoration(labelText: 'Username')),
-              TextField(
-                  controller: password,
-                  obscureText: true,
-                  decoration: const InputDecoration(labelText: 'Password')),
-              TextField(
-                  controller: email,
-                  decoration: const InputDecoration(labelText: 'Email')),
-              TextField(
-                  controller: phone,
-                  decoration: const InputDecoration(labelText: 'Phone')),
-              if (SessionStore.isSuperAdmin) ...[
-                TextField(
-                    controller: city,
-                    decoration: const InputDecoration(labelText: 'City')),
-                TextField(
-                    controller: subCity,
-                    decoration: const InputDecoration(labelText: 'Sub city')),
-                TextField(
-                    controller: wereda,
-                    decoration: const InputDecoration(labelText: 'Wereda')),
-              ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) {
+          return AlertDialog(
+            title: const Text('New supervisor'),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                      controller: fullName,
+                      decoration:
+                          const InputDecoration(labelText: 'Full name')),
+                  TextField(
+                      controller: username,
+                      decoration: const InputDecoration(labelText: 'Username')),
+                  TextField(
+                      controller: password,
+                      obscureText: true,
+                      decoration: const InputDecoration(labelText: 'Password')),
+                  TextField(
+                      controller: email,
+                      decoration: const InputDecoration(labelText: 'Email')),
+                  TextField(
+                      controller: phone,
+                      decoration: const InputDecoration(labelText: 'Phone')),
+                  if (SessionStore.isSuperAdmin) ...[
+                    const SizedBox(height: 8),
+                    Text('Assign wereda',
+                        style: TextStyle(
+                            color: Colors.grey.shade700,
+                            fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 4),
+                    LocationWeredaPicker(
+                      key: const ValueKey('new_sup_loc'),
+                      initialCityId: '',
+                      initialSubcityId: '',
+                      initialWeredaId: '',
+                      onChanged: (c, s, w) => setD(() {
+                        locIds[0] = c;
+                        locIds[1] = s;
+                        locIds[2] = w;
+                      }),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Text('Grades this supervisor can supervise',
+                      style: TextStyle(
+                          color: Colors.grey.shade700,
+                          fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  GradeCodePicker(
+                    selected: gradeHolder[0],
+                    onChanged: (next) =>
+                        setD(() => gradeHolder[0] = Set<String>.from(next)),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel')),
+              FilledButton(
+                onPressed: () async {
+                  if (gradeHolder[0].isEmpty) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+                        content: Text('Select at least one grade')));
+                    return;
+                  }
+                  if (SessionStore.isSuperAdmin && locIds[2].isEmpty) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+                        content: Text('Select city, sub city, and wereda')));
+                    return;
+                  }
+                  final codes = GradeCodes.ordered
+                      .where(gradeHolder[0].contains)
+                      .toList();
+                  try {
+                    final body = SessionStore.isSuperAdmin
+                        ? {
+                            'fullName': fullName.text.trim(),
+                            'username': username.text.trim(),
+                            'password': password.text,
+                            'email': email.text.trim().isEmpty
+                                ? null
+                                : email.text.trim(),
+                            'phone': phone.text.trim().isEmpty
+                                ? null
+                                : phone.text.trim(),
+                            'weredaId': locIds[2],
+                            'supervisedGradeCodes': codes,
+                          }
+                        : {
+                            'fullName': fullName.text.trim(),
+                            'username': username.text.trim(),
+                            'password': password.text,
+                            'email': email.text.trim().isEmpty
+                                ? null
+                                : email.text.trim(),
+                            'phone': phone.text.trim().isEmpty
+                                ? null
+                                : phone.text.trim(),
+                            'supervisedGradeCodes': codes,
+                          };
+                    await ApiClient.createSupervisorUser(body);
+                    if (ctx.mounted) Navigator.pop(ctx);
+                    _load();
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Supervisor created')));
+                    }
+                  } catch (e) {
+                    if (ctx.mounted) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                          content: Text(ApiClient.messageFromError(e))));
+                    }
+                  }
+                },
+                child: const Text('Create'),
+              ),
             ],
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () async {
-              try {
-                final body = SessionStore.isSuperAdmin
-                    ? {
-                        'fullName': fullName.text.trim(),
-                        'username': username.text.trim(),
-                        'password': password.text,
-                        'email': email.text.trim().isEmpty
-                            ? null
-                            : email.text.trim(),
-                        'phone': phone.text.trim().isEmpty
-                            ? null
-                            : phone.text.trim(),
-                        'city':
-                            city.text.trim().isEmpty ? null : city.text.trim(),
-                        'subCity': subCity.text.trim().isEmpty
-                            ? null
-                            : subCity.text.trim(),
-                        'wereda': wereda.text.trim().isEmpty
-                            ? null
-                            : wereda.text.trim(),
-                      }
-                    : {
-                        'fullName': fullName.text.trim(),
-                        'username': username.text.trim(),
-                        'password': password.text,
-                        'email': email.text.trim().isEmpty
-                            ? null
-                            : email.text.trim(),
-                        'phone': phone.text.trim().isEmpty
-                            ? null
-                            : phone.text.trim(),
-                      };
-                await ApiClient.createSupervisorUser(body);
-                if (ctx.mounted) Navigator.pop(ctx);
-                _load();
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Supervisor created')));
-                }
-              } catch (e) {
-                if (ctx.mounted) {
-                  ScaffoldMessenger.of(ctx).showSnackBar(
-                      SnackBar(content: Text(ApiClient.messageFromError(e))));
-                }
-              }
-            },
-            child: const Text('Create'),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -337,64 +391,101 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
         TextEditingController(text: row['fullName']?.toString() ?? '');
     final email = TextEditingController(text: row['email']?.toString() ?? '');
     final phone = TextEditingController(text: row['phone']?.toString() ?? '');
-    final city = TextEditingController(text: row['city']?.toString() ?? '');
-    final subCity =
-        TextEditingController(text: row['subCity']?.toString() ?? '');
-    final wereda = TextEditingController(text: row['wereda']?.toString() ?? '');
-    final ok = await showDialog<bool>(
+    final locIds = <String>[
+      row['cityId']?.toString() ?? '',
+      row['subcityId']?.toString() ?? '',
+      row['weredaId']?.toString() ?? '',
+    ];
+    final initialGrades = GradeCodes.parseList(row['supervisedGradeCodes']);
+    final gradeHolder = <Set<String>>[
+      Set<String>.from(
+          initialGrades.isEmpty ? GradeCodes.ordered : initialGrades)
+    ];
+    final ok = await showDialog<Map<String, dynamic>?>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Edit supervisor'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                  controller: fullName,
-                  decoration: const InputDecoration(labelText: 'Full name')),
-              TextField(
-                  controller: email,
-                  decoration: const InputDecoration(labelText: 'Email')),
-              TextField(
-                  controller: phone,
-                  decoration: const InputDecoration(labelText: 'Phone')),
-              if (SessionStore.isSuperAdmin) ...[
-                TextField(
-                    controller: city,
-                    decoration: const InputDecoration(labelText: 'City')),
-                TextField(
-                    controller: subCity,
-                    decoration: const InputDecoration(labelText: 'Sub city')),
-                TextField(
-                    controller: wereda,
-                    decoration: const InputDecoration(labelText: 'Wereda')),
-              ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) {
+          return AlertDialog(
+            title: const Text('Edit supervisor'),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                      controller: fullName,
+                      decoration:
+                          const InputDecoration(labelText: 'Full name')),
+                  TextField(
+                      controller: email,
+                      decoration: const InputDecoration(labelText: 'Email')),
+                  TextField(
+                      controller: phone,
+                      decoration: const InputDecoration(labelText: 'Phone')),
+                  if (SessionStore.isSuperAdmin) ...[
+                    const SizedBox(height: 8),
+                    LocationWeredaPicker(
+                      key: ValueKey('edit_sup_$id'),
+                      initialCityId: locIds[0],
+                      initialSubcityId: locIds[1],
+                      initialWeredaId: locIds[2],
+                      onChanged: (c, s, w) => setD(() {
+                        locIds[0] = c;
+                        locIds[1] = s;
+                        locIds[2] = w;
+                      }),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Text('Grades this supervisor can supervise',
+                      style: TextStyle(
+                          color: Colors.grey.shade700,
+                          fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  GradeCodePicker(
+                    selected: gradeHolder[0],
+                    onChanged: (next) =>
+                        setD(() => gradeHolder[0] = Set<String>.from(next)),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, null),
+                  child: const Text('Cancel')),
+              FilledButton(
+                  onPressed: () {
+                    if (gradeHolder[0].isEmpty) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+                          content: Text('Select at least one grade')));
+                      return;
+                    }
+                    Navigator.pop(ctx, {
+                      'grades': Set<String>.from(gradeHolder[0]),
+                      'weredaId': locIds[2],
+                    });
+                  },
+                  child: const Text('Save')),
             ],
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Save')),
-        ],
+          );
+        },
       ),
     );
-    if (ok != true) return;
+    if (ok == null) return;
+    final gradeSelected = ok['grades'] as Set<String>;
     try {
-      await ApiClient.patchSupervisorUser(id, {
+      final codes = GradeCodes.ordered.where(gradeSelected.contains).toList();
+      final patch = <String, dynamic>{
         'fullName': fullName.text.trim(),
         'email': email.text.trim().isEmpty ? null : email.text.trim(),
         'phone': phone.text.trim().isEmpty ? null : phone.text.trim(),
-        if (SessionStore.isSuperAdmin)
-          'city': city.text.trim().isEmpty ? null : city.text.trim(),
-        if (SessionStore.isSuperAdmin)
-          'subCity': subCity.text.trim().isEmpty ? null : subCity.text.trim(),
-        if (SessionStore.isSuperAdmin)
-          'wereda': wereda.text.trim().isEmpty ? null : wereda.text.trim(),
-      });
+        'supervisedGradeCodes': codes,
+      };
+      if (SessionStore.isSuperAdmin && (ok['weredaId'] as String).isNotEmpty) {
+        patch['weredaId'] = ok['weredaId'];
+      }
+      await ApiClient.patchSupervisorUser(id, patch);
       await _load();
       if (mounted)
         ScaffoldMessenger.of(context)
@@ -508,10 +599,18 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
                       else
                         ..._supervisors.map((c) {
                           final m = c as Map<String, dynamic>;
+                          final g =
+                              GradeCodes.parseList(m['supervisedGradeCodes']);
+                          final gradesLine = g.isEmpty
+                              ? 'All grades (legacy)'
+                              : 'Grades: ${g.join(', ')}';
                           return Card(
                             child: ListTile(
                               title: Text(m['fullName']?.toString() ?? ''),
-                              subtitle: Text(m['username']?.toString() ?? ''),
+                              subtitle: Text(
+                                '${m['username'] ?? ''}\n$gradesLine',
+                              ),
+                              isThreeLine: true,
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [

@@ -17,6 +17,7 @@ import com.school.supervision.modules.organization.Teacher;
 import com.school.supervision.modules.organization.TeacherRepository;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
@@ -26,6 +27,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @Component
+@ConditionalOnProperty(prefix = "app.demo-data", name = "enabled", havingValue = "true")
 public class DemoDataInitializer implements ApplicationRunner {
     private static final UUID DEFAULT_ORG_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final UUID DEFAULT_CLUSTER_ID = UUID.fromString("51111111-1111-1111-1111-111111111111");

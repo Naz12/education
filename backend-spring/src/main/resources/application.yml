@@ -1,3 +1,8 @@
+app:
+  demo-data:
+    # When true, seeds extra schools, users, checklists, and assignments (development only).
+    enabled: false
+
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/supervision

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/auth/session_store.dart';
 import '../../../core/network/api_client.dart';
+import '../../../l10n/app_strings.dart';
 import '../../assignments/presentation/assignments_screen.dart';
 
 /// Home content shown inside the portal shell (mirrors web Home tab).
@@ -14,7 +15,7 @@ class HomePortalScreen extends StatefulWidget {
 
 class _HomePortalScreenState extends State<HomePortalScreen> {
   Map<String, dynamic>? _workload;
-  String? _workloadNote;
+  bool _workloadUnavailable = false;
   bool _loading = false;
 
   @override
@@ -28,21 +29,21 @@ class _HomePortalScreenState extends State<HomePortalScreen> {
   Future<void> _loadWorkload() async {
     setState(() {
       _loading = true;
-      _workloadNote = null;
+      _workloadUnavailable = false;
     });
     try {
       final w = await ApiClient.fetchMyWorkload();
       if (mounted) {
         setState(() {
           _workload = w;
-          _workloadNote = null;
+          _workloadUnavailable = false;
         });
       }
     } catch (_) {
       if (mounted) {
         setState(() {
           _workload = null;
-          _workloadNote = 'No supervisor workload for this account.';
+          _workloadUnavailable = true;
         });
       }
     } finally {
@@ -93,6 +94,7 @@ class _HomePortalScreenState extends State<HomePortalScreen> {
     final name = me?['fullName']?.toString() ?? SessionStore.username ?? 'User';
     final roles = SessionStore.roles.join(', ');
     final cs = Theme.of(context).colorScheme;
+    final s = AppStrings.of(context);
 
     return RefreshIndicator(
       onRefresh: () async {
@@ -120,7 +122,7 @@ class _HomePortalScreenState extends State<HomePortalScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Hello, $name',
+                  s.helloName(name),
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         fontWeight: FontWeight.w700,
                         letterSpacing: -0.4,
@@ -142,9 +144,7 @@ class _HomePortalScreenState extends State<HomePortalScreen> {
             child: Padding(
               padding: const EdgeInsets.all(18),
               child: Text(
-                SessionStore.canAdmin
-                    ? 'Use the menu to manage users, checklists, checklist items, assignments, schools, and school staff. Open Activity to audit supervisor visits, and Reports to download review PDFs.'
-                    : 'Use Profile for your account and status. Open My assignments to run supervision visits.',
+                SessionStore.canAdmin ? s.homeBlurbAdmin : s.homeBlurbUser,
                 style: TextStyle(height: 1.5, color: cs.onSurface.withOpacity(0.88), fontSize: 14),
               ),
             ),
@@ -168,7 +168,7 @@ class _HomePortalScreenState extends State<HomePortalScreen> {
                           Icon(Icons.insights_rounded, color: cs.primary, size: 22),
                           const SizedBox(width: 8),
                           Text(
-                            'My supervision workload',
+                            s.mySupervisionWorkload,
                             style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                           ),
                         ],
@@ -180,21 +180,21 @@ class _HomePortalScreenState extends State<HomePortalScreen> {
                           _statChip(
                             context,
                             icon: Icons.assignment_rounded,
-                            label: 'Total',
+                            label: s.total,
                             value: '${_workload!['totalAssignments'] ?? 0}',
                           ),
                           const SizedBox(width: 8),
                           _statChip(
                             context,
                             icon: Icons.check_circle_outline_rounded,
-                            label: 'Done',
+                            label: s.done,
                             value: '${_workload!['completedAssignments'] ?? 0}',
                           ),
                           const SizedBox(width: 8),
                           _statChip(
                             context,
                             icon: Icons.pending_actions_rounded,
-                            label: 'Pending',
+                            label: s.pending,
                             value: '${_workload!['pendingAssignments'] ?? 0}',
                           ),
                         ],
@@ -205,21 +205,21 @@ class _HomePortalScreenState extends State<HomePortalScreen> {
                           _statChip(
                             context,
                             icon: Icons.hourglass_top_rounded,
-                            label: 'In progress',
+                            label: s.inProgress,
                             value: '${_workload!['inProgressAssignments'] ?? 0}',
                           ),
                           const SizedBox(width: 8),
                           _statChip(
                             context,
                             icon: Icons.event_busy_rounded,
-                            label: 'Overdue',
+                            label: s.overdue,
                             value: '${_workload!['overdueAssignments'] ?? 0}',
                           ),
                           const SizedBox(width: 8),
                           _statChip(
                             context,
                             icon: Icons.place_rounded,
-                            label: 'Visits',
+                            label: s.visits,
                             value: '${_workload!['visitsCompleted'] ?? 0}',
                           ),
                         ],
@@ -228,11 +228,11 @@ class _HomePortalScreenState extends State<HomePortalScreen> {
                   ),
                 ),
               )
-            else if (_workloadNote != null)
+            else if (_workloadUnavailable)
               Card(
                 child: ListTile(
                   leading: Icon(Icons.info_outline_rounded, color: cs.primary),
-                  title: Text(_workloadNote!),
+                  title: Text(s.noSupervisorWorkload),
                 ),
               ),
             const SizedBox(height: 12),
@@ -272,8 +272,8 @@ class _HomePortalScreenState extends State<HomePortalScreen> {
                           child: Icon(Icons.assignment_outlined, color: cs.primary),
                         ),
                       ),
-                      title: const Text('My assignments', style: TextStyle(fontWeight: FontWeight.w600)),
-                      subtitle: const Text('Supervision tasks and checklists'),
+                      title: Text(s.assignmentsCardTitle, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text(s.assignmentsCardSubtitle),
                       trailing: Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant),
                     ),
                   ),

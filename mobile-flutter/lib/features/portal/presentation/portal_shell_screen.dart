@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/auth/session_store.dart';
+import '../../../core/locale/app_locale.dart';
+import '../../../l10n/app_strings.dart';
 import '../../admin/assignments_admin_screen.dart';
 import '../../admin/checklist_items_admin_screen.dart';
 import '../../admin/checklists_admin_screen.dart';
@@ -25,30 +27,30 @@ class PortalShellScreen extends StatefulWidget {
 class _PortalShellScreenState extends State<PortalShellScreen> {
   String _route = 'home';
 
-  String get _title {
+  String _title(AppStrings s) {
     switch (_route) {
       case 'home':
-        return 'Home';
+        return s.home;
       case 'myAssignments':
-        return 'My assignments';
+        return s.myAssignments;
       case 'users':
-        return 'Users';
+        return s.users;
       case 'checklists':
-        return 'Checklists';
+        return s.checklists;
       case 'checklistItems':
-        return 'Checklist items';
+        return s.checklistItems;
       case 'assignments':
-        return 'Assignments';
+        return s.assignments;
       case 'schools':
-        return 'Schools';
+        return s.schools;
       case 'schoolStuff':
-        return 'School stuff';
+        return s.schoolStuff;
       case 'activity':
-        return 'Activity';
+        return s.activity;
       case 'reports':
-        return 'Reports';
+        return s.reports;
       default:
-        return 'School Supervision';
+        return s.appTitle;
     }
   }
 
@@ -123,6 +125,8 @@ class _PortalShellScreenState extends State<PortalShellScreen> {
     final me = SessionStore.currentUser;
     final subtitle = me == null ? '' : '${me['fullName'] ?? SessionStore.username} · ${SessionStore.roles.join(', ')}';
     final cs = Theme.of(context).colorScheme;
+    final s = AppStrings.of(context);
+    final title = _title(s);
 
     return Scaffold(
       appBar: AppBar(
@@ -131,7 +135,7 @@ class _PortalShellScreenState extends State<PortalShellScreen> {
           switchInCurve: Curves.easeOut,
           switchOutCurve: Curves.easeIn,
           transitionBuilder: (child, anim) => FadeTransition(opacity: anim, child: child),
-          child: Text(_title, key: ValueKey(_title)),
+          child: Text(title, key: ValueKey(title)),
         ),
       ),
       drawer: Drawer(
@@ -169,10 +173,10 @@ class _PortalShellScreenState extends State<PortalShellScreen> {
                             child: const Icon(Icons.account_circle_rounded, size: 32, color: Colors.white),
                           ),
                           const SizedBox(width: 12),
-                          const Expanded(
+                          Expanded(
                             child: Text(
-                              'School Supervision',
-                              style: TextStyle(
+                              s.appTitle,
+                              style: const TextStyle(
                                 fontWeight: FontWeight.w700,
                                 fontSize: 17,
                                 color: Colors.white,
@@ -196,18 +200,18 @@ class _PortalShellScreenState extends State<PortalShellScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              _drawerTile(icon: Icons.home_outlined, title: 'Home', route: 'home'),
+              _drawerTile(icon: Icons.home_outlined, title: s.home, route: 'home'),
               if (!can)
                 _drawerTile(
                   icon: Icons.assignment_outlined,
-                  title: 'My assignments',
+                  title: s.myAssignments,
                   route: 'myAssignments',
                 ),
               if (can) ...[
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
                   child: Text(
-                    'Administration',
+                    s.administration,
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
@@ -216,22 +220,55 @@ class _PortalShellScreenState extends State<PortalShellScreen> {
                     ),
                   ),
                 ),
-                _drawerTile(icon: Icons.people_outline, title: 'Users', route: 'users'),
-                _drawerTile(icon: Icons.fact_check_outlined, title: 'Checklists', route: 'checklists'),
-                _drawerTile(icon: Icons.edit_note_rounded, title: 'Checklist items', route: 'checklistItems'),
-                _drawerTile(icon: Icons.assignment_turned_in_outlined, title: 'Assignments', route: 'assignments'),
-                _drawerTile(icon: Icons.school_outlined, title: 'Schools', route: 'schools'),
-                _drawerTile(icon: Icons.groups_outlined, title: 'School stuff', route: 'schoolStuff'),
-                _drawerTile(icon: Icons.timeline_outlined, title: 'Activity', route: 'activity'),
-                _drawerTile(icon: Icons.picture_as_pdf_outlined, title: 'Reports', route: 'reports'),
+                _drawerTile(icon: Icons.people_outline, title: s.users, route: 'users'),
+                _drawerTile(icon: Icons.fact_check_outlined, title: s.checklists, route: 'checklists'),
+                _drawerTile(icon: Icons.edit_note_rounded, title: s.checklistItems, route: 'checklistItems'),
+                _drawerTile(icon: Icons.assignment_turned_in_outlined, title: s.assignments, route: 'assignments'),
+                _drawerTile(icon: Icons.school_outlined, title: s.schools, route: 'schools'),
+                _drawerTile(icon: Icons.groups_outlined, title: s.schoolStuff, route: 'schoolStuff'),
+                _drawerTile(icon: Icons.timeline_outlined, title: s.activity, route: 'activity'),
+                _drawerTile(icon: Icons.picture_as_pdf_outlined, title: s.reports, route: 'reports'),
               ],
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                child: Text(s.language, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: cs.onSurfaceVariant)),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Column(
+                  children: [
+                    RadioListTile<String>(
+                      dense: true,
+                      value: 'en',
+                      groupValue: Localizations.localeOf(context).languageCode.toLowerCase().startsWith('am') ? 'am' : 'en',
+                      onChanged: (v) {
+                        if (v != null) AppLocaleScope.setLocaleOf(context, Locale(v));
+                        setState(() {});
+                        Navigator.pop(context);
+                      },
+                      title: Text(s.english),
+                    ),
+                    RadioListTile<String>(
+                      dense: true,
+                      value: 'am',
+                      groupValue: Localizations.localeOf(context).languageCode.toLowerCase().startsWith('am') ? 'am' : 'en',
+                      onChanged: (v) {
+                        if (v != null) AppLocaleScope.setLocaleOf(context, Locale(v));
+                        setState(() {});
+                        Navigator.pop(context);
+                      },
+                      title: Text(s.amharic),
+                    ),
+                  ],
+                ),
+              ),
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 8),
                 child: Divider(height: 1),
               ),
               _drawerTile(
                 icon: Icons.person_outline_rounded,
-                title: 'Profile',
+                title: s.profile,
                 route: '',
                 onTap: () {
                   HapticFeedback.selectionClick();
@@ -256,7 +293,7 @@ class _PortalShellScreenState extends State<PortalShellScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: ListTile(
                   leading: Icon(Icons.logout_rounded, color: cs.error),
-                  title: Text('Sign out', style: TextStyle(color: cs.error, fontWeight: FontWeight.w600)),
+                  title: Text(s.signOut, style: TextStyle(color: cs.error, fontWeight: FontWeight.w600)),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   onTap: _signOut,
                 ),

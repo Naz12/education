@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../core/auth/session_store.dart';
+import '../../../core/locale/app_locale.dart';
 import '../../../core/network/api_client.dart';
+import '../../../l10n/app_strings.dart';
 import '../../auth/presentation/login_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -98,7 +100,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() => _me = updated);
       SessionStore.currentUser = updated;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile updated')),
+        SnackBar(content: Text(AppStrings.of(context).profileUpdated)),
       );
     } catch (e) {
       if (!mounted) return;
@@ -113,13 +115,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _changePassword() async {
     if (_newPw.text != _confirmPw.text) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('New passwords do not match')),
+        SnackBar(content: Text(AppStrings.of(context).passwordsDoNotMatch)),
       );
       return;
     }
     if (_newPw.text.length < 8) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('New password must be at least 8 characters')),
+        SnackBar(content: Text(AppStrings.of(context).passwordMinLength)),
       );
       return;
     }
@@ -134,7 +136,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _newPw.clear();
       _confirmPw.clear();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Password changed')),
+        SnackBar(content: Text(AppStrings.of(context).passwordChanged)),
       );
     } catch (e) {
       if (!mounted) return;
@@ -159,22 +161,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       );
 
-  Widget _statusCard() {
+  Widget _statusCard(AppStrings loc) {
     if (_statusError != null) {
       return Card(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Text('Could not load status: $_statusError'),
+          child: Text(loc.couldNotLoadStatus(_statusError!)),
         ),
       );
     }
-    final s = _status;
-    if (s == null) {
+    final st = _status;
+    if (st == null) {
       return const SizedBox.shrink();
     }
-    final w = s['supervisorWorkload'] as Map<String, dynamic>?;
-    final c = s['coordinatorScope'] as Map<String, dynamic>?;
-    final a = s['adminScope'] as Map<String, dynamic>?;
+    final w = st['supervisorWorkload'] as Map<String, dynamic>?;
+    final c = st['coordinatorScope'] as Map<String, dynamic>?;
+    final a = st['adminScope'] as Map<String, dynamic>?;
 
     if (w != null) {
       return Card(
@@ -183,12 +185,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Supervisor workload', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text(loc.supervisorWorkload, style: const TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              Text('Assignments: ${w['totalAssignments'] ?? 0}'),
-              Text('Completed: ${w['completedAssignments'] ?? 0} · Pending: ${w['pendingAssignments'] ?? 0}'),
-              Text('In progress: ${w['inProgressAssignments'] ?? 0} · Overdue: ${w['overdueAssignments'] ?? 0}'),
-              Text('Visits completed: ${w['visitsCompleted'] ?? 0}'),
+              Text(loc.supervisorWorkloadBlock(w)),
             ],
           ),
         ),
@@ -201,11 +200,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Coordinator scope', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text(loc.coordinatorScope, style: const TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              Text('Supervisors: ${c['supervisorsCount'] ?? 0}'),
-              Text('Schools: ${c['schoolsCount'] ?? 0} · Teachers: ${c['teachersCount'] ?? 0}'),
-              Text('Active assignments: ${c['activeAssignmentsCount'] ?? 0}'),
+              Text(loc.coordinatorScopeBlock(c)),
             ],
           ),
         ),
@@ -218,33 +215,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Organization scope', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text(loc.organizationScope, style: const TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              Text('Users: ${a['usersCount'] ?? 0} · Schools: ${a['schoolsCount'] ?? 0}'),
-              Text('Supervisors: ${a['supervisorsCount'] ?? 0} · Coordinators: ${a['coordinatorsCount'] ?? 0}'),
+              Text(loc.organizationScopeBlock(a)),
             ],
           ),
         ),
       );
     }
-    return const Card(
+    return Card(
       child: Padding(
-        padding: EdgeInsets.all(16),
-        child: Text('No role-specific metrics for this user.'),
+        padding: const EdgeInsets.all(16),
+        child: Text(loc.noRoleMetrics),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    final lang = Localizations.localeOf(context).languageCode.toLowerCase().startsWith('am') ? 'am' : 'en';
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Profile'),
+        title: Text(s.profileTitle),
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
           IconButton(
             icon: const Icon(Icons.logout),
-            tooltip: 'Sign out',
+            tooltip: s.signOutTooltip,
             onPressed: () {
               SessionStore.clear();
               Navigator.of(context).pushAndRemoveUntil(
@@ -266,7 +264,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       children: [
                         Text(_error!, textAlign: TextAlign.center),
                         const SizedBox(height: 16),
-                        FilledButton(onPressed: _load, child: const Text('Retry')),
+                        FilledButton(onPressed: _load, child: Text(s.retry)),
                       ],
                     ),
                   ),
@@ -285,9 +283,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
                         ),
                     ],
-                    _sectionTitle('ACCOUNT STATUS'),
-                    _statusCard(),
-                    _sectionTitle('PROFILE'),
+                    _sectionTitle(s.accountStatus),
+                    _statusCard(s),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(4, 8, 4, 4),
+                      child: Text(s.language, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF64748B))),
+                    ),
+                    Card(
+                      child: Column(
+                        children: [
+                          RadioListTile<String>(
+                            title: Text(s.english),
+                            value: 'en',
+                            groupValue: lang,
+                            onChanged: (v) {
+                              if (v != null) AppLocaleScope.setLocaleOf(context, Locale(v));
+                              setState(() {});
+                            },
+                          ),
+                          RadioListTile<String>(
+                            title: Text(s.amharic),
+                            value: 'am',
+                            groupValue: lang,
+                            onChanged: (v) {
+                              if (v != null) AppLocaleScope.setLocaleOf(context, Locale(v));
+                              setState(() {});
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    _sectionTitle(s.profileSection),
                     Card(
                       child: Padding(
                         padding: const EdgeInsets.all(16),
@@ -295,42 +321,42 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           children: [
                             TextField(
                               controller: _fullName,
-                              decoration: const InputDecoration(labelText: 'Full name'),
+                              decoration: InputDecoration(labelText: s.fullName),
                             ),
                             const SizedBox(height: 8),
                             TextField(
                               controller: _email,
-                              decoration: const InputDecoration(labelText: 'Email'),
+                              decoration: InputDecoration(labelText: s.email),
                               keyboardType: TextInputType.emailAddress,
                             ),
                             const SizedBox(height: 8),
                             TextField(
                               controller: _city,
-                              decoration: const InputDecoration(labelText: 'City'),
+                              decoration: InputDecoration(labelText: s.city),
                             ),
                             const SizedBox(height: 8),
                             TextField(
                               controller: _subCity,
-                              decoration: const InputDecoration(labelText: 'Sub city'),
+                              decoration: InputDecoration(labelText: s.subCity),
                             ),
                             const SizedBox(height: 8),
                             TextField(
                               controller: _wereda,
-                              decoration: const InputDecoration(labelText: 'Wereda'),
+                              decoration: InputDecoration(labelText: s.wereda),
                             ),
                             const SizedBox(height: 16),
                             SizedBox(
                               width: double.infinity,
                               child: FilledButton(
                                 onPressed: _savingProfile ? null : _saveProfile,
-                                child: Text(_savingProfile ? 'Saving…' : 'Save profile'),
+                                child: Text(_savingProfile ? s.saving : s.saveProfile),
                               ),
                             ),
                           ],
                         ),
                       ),
                     ),
-                    _sectionTitle('CHANGE PASSWORD'),
+                    _sectionTitle(s.changePasswordSection),
                     Card(
                       child: Padding(
                         padding: const EdgeInsets.all(16),
@@ -339,26 +365,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             TextField(
                               controller: _currentPw,
                               obscureText: true,
-                              decoration: const InputDecoration(labelText: 'Current password'),
+                              decoration: InputDecoration(labelText: s.currentPassword),
                             ),
                             const SizedBox(height: 8),
                             TextField(
                               controller: _newPw,
                               obscureText: true,
-                              decoration: const InputDecoration(labelText: 'New password (min 8)'),
+                              decoration: InputDecoration(labelText: s.newPasswordMin8),
                             ),
                             const SizedBox(height: 8),
                             TextField(
                               controller: _confirmPw,
                               obscureText: true,
-                              decoration: const InputDecoration(labelText: 'Confirm new password'),
+                              decoration: InputDecoration(labelText: s.confirmNewPassword),
                             ),
                             const SizedBox(height: 16),
                             SizedBox(
                               width: double.infinity,
                               child: OutlinedButton(
                                 onPressed: _changingPw ? null : _changePassword,
-                                child: Text(_changingPw ? 'Updating…' : 'Update password'),
+                                child: Text(_changingPw ? s.updating : s.updatePassword),
                               ),
                             ),
                           ],

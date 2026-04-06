@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { I18nProvider, useI18n } from "./i18n/I18nProvider.jsx";
 
 /** Use same-origin /api by default so production works behind nginx without extra env wiring. */
 const API_BASE =
@@ -62,7 +63,7 @@ const t = {
   accent: "#18181b",
   accentSoft: "#fafafa",
   radius: 10,
-  font: '"DM Sans", system-ui, sans-serif',
+  font: '"DM Sans", "Noto Sans Ethiopic", system-ui, sans-serif',
   shadow: "0 1px 2px rgba(0,0,0,0.04)"
 };
 
@@ -199,7 +200,7 @@ function Input(props) {
     <input
       {...props}
       style={{
-        fontFamily: t.font,
+        fontFamily: `"DM Sans", "Noto Sans Ethiopic", system-ui, sans-serif`,
         width: "100%",
         padding: "10px 12px",
         borderRadius: t.radius,
@@ -271,6 +272,7 @@ function DataTable({ columns, rows, renderCell, empty }) {
 }
 
 function App() {
+  const { str, locale, setLocale } = useI18n();
   const [token, setToken] = useState(localStorage.getItem("portal_token") || "");
   const [me, setMe] = useState(null);
   const [activeTab, setActiveTab] = useState("home");
@@ -327,31 +329,31 @@ function App() {
     return (
       <div style={{ ...shell, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <Card style={{ padding: 28 }}>
-          <p style={{ margin: 0, color: t.muted, fontSize: 14 }}>Loading your session…</p>
+          <p style={{ margin: 0, color: t.muted, fontSize: 14 }}>{str.loadingSession}</p>
         </Card>
       </div>
     );
   }
 
   const tabs = [
-    { id: "home", label: "Home" },
+    { id: "home", label: str.tabHome },
     ...(isSupervisorPortal
       ? [
-          { id: "my-assignments", label: "My assignments" },
-          { id: "reports", label: "Reports" }
+          { id: "my-assignments", label: str.tabMyAssignments },
+          { id: "reports", label: str.tabReports }
         ]
       : []),
     ...(canAdmin
       ? [
-          { id: "users", label: "Users" },
-          ...(isSuperAdmin ? [{ id: "locations", label: "Locations" }] : []),
-          { id: "checklists", label: "Checklists" },
-          { id: "checklist-items", label: "Checklist items" },
-          { id: "assignments", label: "Assignments" },
-          { id: "schools", label: "Schools" },
-          { id: "school-stuff", label: "School stuff" },
-          { id: "supervision", label: "Activity" },
-          { id: "reports", label: "Reports" }
+          { id: "users", label: str.tabUsers },
+          ...(isSuperAdmin ? [{ id: "locations", label: str.tabLocations }] : []),
+          { id: "checklists", label: str.tabChecklists },
+          { id: "checklist-items", label: str.tabChecklistItems },
+          { id: "assignments", label: str.tabAssignments },
+          { id: "schools", label: str.tabSchools },
+          { id: "school-stuff", label: str.tabSchoolStuff },
+          { id: "supervision", label: str.tabActivity },
+          { id: "reports", label: str.tabReports }
         ]
       : [])
   ];
@@ -369,10 +371,29 @@ function App() {
       >
         <div style={{ ...maxW, paddingTop: 16, paddingBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, position: "relative" }}>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: "-0.02em" }}>School Supervision</div>
+            <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: "-0.02em" }}>{str.appBrand}</div>
             <div style={{ fontSize: 12, color: t.muted, marginTop: 2 }}>{me.fullName} · {me.roles.join(", ")}</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: t.muted }}>
+              <span>{str.language}</span>
+              <select
+                value={locale}
+                onChange={(e) => setLocale(e.target.value)}
+                style={{
+                  fontFamily: `"DM Sans", "Noto Sans Ethiopic", system-ui, sans-serif`,
+                  padding: "6px 10px",
+                  borderRadius: t.radius,
+                  border: `1px solid ${t.line}`,
+                  fontSize: 13,
+                  background: t.card,
+                  color: t.text
+                }}
+              >
+                <option value="en">{str.english}</option>
+                <option value="am">{str.amharic}</option>
+              </select>
+            </label>
             <button
               type="button"
               onClick={() => setProfileMenuOpen((v) => !v)}
@@ -388,7 +409,7 @@ function App() {
                 cursor: "pointer"
               }}
             >
-              Profile ▾
+              {str.profileMenu}
             </button>
             {profileMenuOpen && (
               <div
@@ -424,7 +445,7 @@ function App() {
                     borderRadius: 8
                   }}
                 >
-                  Profile
+                  {str.profile}
                 </button>
                 <button
                   type="button"
@@ -444,7 +465,7 @@ function App() {
                     borderRadius: 8
                   }}
                 >
-                  Sign out
+                  {str.signOut}
                 </button>
               </div>
             )}
@@ -504,6 +525,7 @@ function App() {
 }
 
 function LoginPage({ onLogin, error, setError }) {
+  const { str, locale, setLocale } = useI18n();
   const [username, setUsername] = useState("superadmin");
   const [password, setPassword] = useState("Admin@12345");
   const [loading, setLoading] = useState(false);
@@ -536,35 +558,56 @@ function LoginPage({ onLogin, error, setError }) {
   return (
     <div style={{ ...shell, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <Card style={{ width: "100%", maxWidth: 400, padding: 28 }}>
-        <h1 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 600 }}>Sign in</h1>
-        <p style={{ margin: "0 0 24px", color: t.muted, fontSize: 14 }}>School supervision portal</p>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: t.muted }}>
+            <span>{str.language}</span>
+            <select
+              value={locale}
+              onChange={(e) => setLocale(e.target.value)}
+              style={{
+                fontFamily: t.font,
+                padding: "6px 10px",
+                borderRadius: t.radius,
+                border: `1px solid ${t.line}`,
+                fontSize: 13,
+                background: t.card
+              }}
+            >
+              <option value="en">{str.english}</option>
+              <option value="am">{str.amharic}</option>
+            </select>
+          </label>
+        </div>
+        <h1 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 600 }}>{str.loginTitle}</h1>
+        <p style={{ margin: "0 0 24px", color: t.muted, fontSize: 14 }}>{str.loginSubtitle}</p>
         <form onSubmit={submit}>
-          <Label>Username</Label>
+          <Label>{str.username}</Label>
           <Input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" style={{ marginBottom: 14 }} />
-          <Label>Password</Label>
+          <Label>{str.password}</Label>
           <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" style={{ marginBottom: 20 }} />
           <PrimaryButton type="submit" disabled={loading} style={{ width: "100%" }}>
-            {loading ? "Signing in…" : "Continue"}
+            {loading ? str.signingIn : str.continue}
           </PrimaryButton>
         </form>
         {error && <Alert type="error">{error}</Alert>}
-        <p style={{ fontSize: 12, color: t.muted, marginTop: 16 }}>Demo: superadmin / Admin@12345</p>
+        <p style={{ fontSize: 12, color: t.muted, marginTop: 16 }}>{str.demoAccounts}</p>
       </Card>
     </div>
   );
 }
 
 function HomePage({ canAdmin, isSupervisorPortal }) {
+  const { str } = useI18n();
   return (
     <>
-      <PageHeader title="Home" subtitle="Minimal workspace for coordinating school supervision." />
+      <PageHeader title={str.homeTitle} subtitle={str.homeSubtitleAdmin} />
       <Card style={{ padding: 24 }}>
         <p style={{ margin: 0, fontSize: 15, lineHeight: 1.6, color: t.muted }}>
           {canAdmin
-            ? "Use the tabs above to manage users, grade groups, checklists, assignments, schools, and teachers. Open Activity to audit supervisor visits."
+            ? str.homeBodyAdmin
             : isSupervisorPortal
-              ? "Open My assignments to complete field visits, answer checklists, and capture signatures. Reports lists your submitted PDFs. Use Profile for your account and workload summary."
-              : "Use Profile to update your account and view your status. Contact an administrator if you need access to coordination tools."}
+              ? str.homeBodySupervisor
+              : str.homeBodyUser}
         </p>
       </Card>
     </>
@@ -572,6 +615,7 @@ function HomePage({ canAdmin, isSupervisorPortal }) {
 }
 
 function ProfilePage({ headers, me, onProfileUpdated }) {
+  const { str } = useI18n();
   const [status, setStatus] = useState(null);
   const [form, setForm] = useState({
     fullName: me.fullName || "",
@@ -643,48 +687,48 @@ function ProfilePage({ headers, me, onProfileUpdated }) {
   return (
     <>
       <PageHeader
-        title="Profile"
-        subtitle="Account settings and a snapshot of your role in the organization."
-        action={<GhostButton onClick={loadStatus}>Refresh status</GhostButton>}
+        title={str.profileTitle}
+        subtitle={str.profileSubtitle}
+        action={<GhostButton onClick={loadStatus}>{str.refreshStatus}</GhostButton>}
       />
       {msg && <Alert type={msg.type}>{msg.text}</Alert>}
 
       <div style={{ display: "grid", gap: 20, gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
         <Card style={{ padding: 20 }}>
-          <h2 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 600 }}>Account</h2>
-          <p style={{ margin: "0 0 8px", fontSize: 13, color: t.muted }}>Username</p>
+          <h2 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 600 }}>{str.account}</h2>
+          <p style={{ margin: "0 0 8px", fontSize: 13, color: t.muted }}>{str.usernameLabel}</p>
           <p style={{ margin: "0 0 16px", fontWeight: 500 }}>{me.username}</p>
           <form onSubmit={saveProfile}>
-            <Label>Full name</Label>
+            <Label>{str.fullName}</Label>
             <Input value={form.fullName} onChange={(e) => setForm((p) => ({ ...p, fullName: e.target.value }))} required style={{ marginBottom: 12 }} />
-            <Label>Email</Label>
+            <Label>{str.email}</Label>
             <Input value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} type="email" style={{ marginBottom: 12 }} />
-            <Label>City</Label>
+            <Label>{str.city}</Label>
             <Input value={form.city} onChange={(e) => setForm((p) => ({ ...p, city: e.target.value }))} style={{ marginBottom: 12 }} />
-            <Label>Sub city</Label>
+            <Label>{str.subCity}</Label>
             <Input value={form.subCity} onChange={(e) => setForm((p) => ({ ...p, subCity: e.target.value }))} style={{ marginBottom: 12 }} />
-            <Label>Wereda</Label>
+            <Label>{str.wereda}</Label>
             <Input value={form.wereda} onChange={(e) => setForm((p) => ({ ...p, wereda: e.target.value }))} style={{ marginBottom: 16 }} />
-            <PrimaryButton type="submit">Save profile</PrimaryButton>
+            <PrimaryButton type="submit">{str.saveProfile}</PrimaryButton>
           </form>
         </Card>
 
         <Card style={{ padding: 20 }}>
-          <h2 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 600 }}>Password</h2>
+          <h2 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 600 }}>{str.passwordSection}</h2>
           <form onSubmit={savePassword}>
-            <Label>Current password</Label>
+            <Label>{str.currentPassword}</Label>
             <Input type="password" value={pw.current} onChange={(e) => setPw((p) => ({ ...p, current: e.target.value }))} required style={{ marginBottom: 12 }} />
-            <Label>New password (min 8)</Label>
+            <Label>{str.newPassword}</Label>
             <Input type="password" value={pw.next} onChange={(e) => setPw((p) => ({ ...p, next: e.target.value }))} required minLength={8} style={{ marginBottom: 12 }} />
-            <Label>Confirm new password</Label>
+            <Label>{str.confirmPassword}</Label>
             <Input type="password" value={pw.next2} onChange={(e) => setPw((p) => ({ ...p, next2: e.target.value }))} required style={{ marginBottom: 16 }} />
-            <PrimaryButton type="submit">Update password</PrimaryButton>
+            <PrimaryButton type="submit">{str.updatePassword}</PrimaryButton>
           </form>
         </Card>
 
         <Card style={{ padding: 20, gridColumn: "1 / -1" }}>
-          <h2 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 600 }}>Your status</h2>
-          {!status && <p style={{ color: t.muted, fontSize: 14 }}>Loading…</p>}
+          <h2 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 600 }}>{str.yourStatus}</h2>
+          {!status && <p style={{ color: t.muted, fontSize: 14 }}>{str.loadingEllipsis}</p>}
           {status?.supervisorWorkload && (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
               {[
@@ -742,6 +786,7 @@ function ProfilePage({ headers, me, onProfileUpdated }) {
 }
 
 function LocationWeredaPicker({ headers, cityId, subcityId, weredaId, onChange, disabled }) {
+  const { str } = useI18n();
   const [cities, setCities] = useState([]);
   const [subcities, setSubcities] = useState([]);
   const [weredas, setWeredas] = useState([]);
@@ -775,42 +820,42 @@ function LocationWeredaPicker({ headers, cityId, subcityId, weredaId, onChange, 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
       <div>
-        <Label>City</Label>
+        <Label>{str.city}</Label>
         <select
           value={cityId}
           disabled={disabled}
           onChange={(e) => onChange({ cityId: e.target.value, subcityId: "", weredaId: "" })}
           style={selStyle}
         >
-          <option value="">Select…</option>
+          <option value="">{str.selectEllipsis}</option>
           {cities.map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
       </div>
       <div>
-        <Label>Sub city</Label>
+        <Label>{str.subCity}</Label>
         <select
           value={subcityId}
           disabled={disabled || !cityId}
           onChange={(e) => onChange({ cityId, subcityId: e.target.value, weredaId: "" })}
           style={selStyle}
         >
-          <option value="">Select…</option>
+          <option value="">{str.selectEllipsis}</option>
           {subcities.map((s) => (
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
       </div>
       <div>
-        <Label>Wereda</Label>
+        <Label>{str.wereda}</Label>
         <select
           value={weredaId}
           disabled={disabled || !subcityId}
           onChange={(e) => onChange({ cityId, subcityId, weredaId: e.target.value })}
           style={selStyle}
         >
-          <option value="">Select…</option>
+          <option value="">{str.selectEllipsis}</option>
           {weredas.map((w) => (
             <option key={w.id} value={w.id}>{w.name}</option>
           ))}
@@ -821,6 +866,7 @@ function LocationWeredaPicker({ headers, cityId, subcityId, weredaId, onChange, 
 }
 
 function GeographyLocationsPage({ headers }) {
+  const { str } = useI18n();
   const [cities, setCities] = useState([]);
   const [subcities, setSubcities] = useState([]);
   const [weredas, setWeredas] = useState([]);
@@ -976,29 +1022,29 @@ function GeographyLocationsPage({ headers }) {
   return (
     <>
       <PageHeader
-        title="Locations"
-        subtitle="Cities, sub cities, and weredas (super admin only). Coordinators are assigned to a wereda from this tree."
+        title={str.locationsTitle}
+        subtitle={str.locationsSubtitle}
       />
       {message && <Alert type={message.type}>{message.text}</Alert>}
 
       <section style={{ marginBottom: 28 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0, color: t.muted }}>Cities</h2>
-          <GhostButton onClick={() => openAdd("city")} disabled={busy}>Add city</GhostButton>
+          <h2 style={{ fontSize: 14, fontWeight: 600, margin: 0, color: t.muted }}>{str.cities}</h2>
+          <GhostButton onClick={() => openAdd("city")} disabled={busy}>{str.addCity}</GhostButton>
         </div>
         <DataTable
           columns={[
-            { key: "name", label: "Name" },
-            { key: "actions", label: "Actions" }
+            { key: "name", label: str.name },
+            { key: "actions", label: str.actions }
           ]}
           rows={cities}
-          empty="No cities."
+          empty={str.noCities}
           renderCell={(key, row) => {
             if (key === "actions") {
               return (
                 <div style={{ display: "flex", gap: 8 }}>
-                  <GhostButton type="button" disabled={busy} onClick={() => openEdit("city", row)}>Edit</GhostButton>
-                  <GhostButton type="button" disabled={busy} onClick={() => confirmDelete("city", row.id)}>Delete</GhostButton>
+                  <GhostButton type="button" disabled={busy} onClick={() => openEdit("city", row)}>{str.edit}</GhostButton>
+                  <GhostButton type="button" disabled={busy} onClick={() => confirmDelete("city", row.id)}>{str.delete}</GhostButton>
                 </div>
               );
             }
@@ -1008,34 +1054,34 @@ function GeographyLocationsPage({ headers }) {
       </section>
 
       <section style={{ marginBottom: 28 }}>
-        <h2 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 8px", color: t.muted }}>Sub cities</h2>
+        <h2 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 8px", color: t.muted }}>{str.subCities}</h2>
         <div style={{ marginBottom: 12 }}>
-          <Label>City</Label>
+          <Label>{str.city}</Label>
           <select
             value={cityPick}
             onChange={(e) => { setCityPick(e.target.value); setSubPick(""); }}
             style={{ fontFamily: t.font, minWidth: 280, padding: "10px 12px", borderRadius: t.radius, border: `1px solid ${t.line}` }}
           >
-            <option value="">Select city…</option>
+            <option value="">{str.selectCity}</option>
             {cities.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
-          <GhostButton onClick={() => openAdd("subcity")} disabled={busy || !cityPick} style={{ marginLeft: 8 }}>Add sub city</GhostButton>
+          <GhostButton onClick={() => openAdd("subcity")} disabled={busy || !cityPick} style={{ marginLeft: 8 }}>{str.addSubCity}</GhostButton>
         </div>
         <DataTable
           columns={[
-            { key: "name", label: "Name" },
-            { key: "actions", label: "Actions" }
+            { key: "name", label: str.name },
+            { key: "actions", label: str.actions }
           ]}
           rows={subcities}
-          empty={cityPick ? "No sub cities in this city." : "Select a city."}
+          empty={cityPick ? str.noSubcitiesInCity : str.selectACity}
           renderCell={(key, row) => {
             if (key === "actions") {
               return (
                 <div style={{ display: "flex", gap: 8 }}>
-                  <GhostButton type="button" disabled={busy} onClick={() => openEdit("subcity", row)}>Edit</GhostButton>
-                  <GhostButton type="button" disabled={busy} onClick={() => confirmDelete("subcity", row.id)}>Delete</GhostButton>
+                  <GhostButton type="button" disabled={busy} onClick={() => openEdit("subcity", row)}>{str.edit}</GhostButton>
+                  <GhostButton type="button" disabled={busy} onClick={() => confirmDelete("subcity", row.id)}>{str.delete}</GhostButton>
                 </div>
               );
             }
@@ -1045,35 +1091,35 @@ function GeographyLocationsPage({ headers }) {
       </section>
 
       <section>
-        <h2 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 8px", color: t.muted }}>Weredas</h2>
+        <h2 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 8px", color: t.muted }}>{str.weredas}</h2>
         <div style={{ marginBottom: 12 }}>
-          <Label>Sub city</Label>
+          <Label>{str.subCity}</Label>
           <select
             value={subPick}
             onChange={(e) => setSubPick(e.target.value)}
             disabled={!cityPick}
             style={{ fontFamily: t.font, minWidth: 280, padding: "10px 12px", borderRadius: t.radius, border: `1px solid ${t.line}` }}
           >
-            <option value="">Select sub city…</option>
+            <option value="">{str.selectSubCity}</option>
             {subcities.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
-          <GhostButton onClick={() => openAdd("wereda")} disabled={busy || !subPick} style={{ marginLeft: 8 }}>Add wereda</GhostButton>
+          <GhostButton onClick={() => openAdd("wereda")} disabled={busy || !subPick} style={{ marginLeft: 8 }}>{str.addWereda}</GhostButton>
         </div>
         <DataTable
           columns={[
-            { key: "name", label: "Name" },
-            { key: "actions", label: "Actions" }
+            { key: "name", label: str.name },
+            { key: "actions", label: str.actions }
           ]}
           rows={weredas}
-          empty={subPick ? "No weredas in this sub city." : "Select a sub city."}
+          empty={subPick ? str.noWeredas : str.selectASubCity}
           renderCell={(key, row) => {
             if (key === "actions") {
               return (
                 <div style={{ display: "flex", gap: 8 }}>
-                  <GhostButton type="button" disabled={busy} onClick={() => openEdit("wereda", row)}>Edit</GhostButton>
-                  <GhostButton type="button" disabled={busy} onClick={() => confirmDelete("wereda", row.id)}>Delete</GhostButton>
+                  <GhostButton type="button" disabled={busy} onClick={() => openEdit("wereda", row)}>{str.edit}</GhostButton>
+                  <GhostButton type="button" disabled={busy} onClick={() => confirmDelete("wereda", row.id)}>{str.delete}</GhostButton>
                 </div>
               );
             }
@@ -1085,7 +1131,7 @@ function GeographyLocationsPage({ headers }) {
       <Modal open={nameModal.open} onClose={() => (!busy ? setNameModal((m) => ({ ...m, open: false })) : null)} title={nameModal.title}>
         <form onSubmit={saveNameModal} style={{ display: "grid", gap: 12 }}>
           <div>
-            <Label>Name</Label>
+            <Label>{str.name}</Label>
             <Input value={nameModal.name} onChange={(e) => setNameModal((m) => ({ ...m, name: e.target.value }))} required />
           </div>
           <PrimaryButton type="submit" disabled={busy}>{busy ? "Saving…" : "Save"}</PrimaryButton>
@@ -1096,6 +1142,7 @@ function GeographyLocationsPage({ headers }) {
 }
 
 function UsersPage({ headers, isSuperAdmin }) {
+  const { str } = useI18n();
   const [coordinators, setCoordinators] = useState([]);
   const [supervisors, setSupervisors] = useState([]);
   const [coordOpen, setCoordOpen] = useState(false);
@@ -1324,12 +1371,12 @@ function UsersPage({ headers, isSuperAdmin }) {
   return (
     <>
       <PageHeader
-        title="Users"
-        subtitle="Cluster coordinators and supervisors."
+        title={str.usersTitle}
+        subtitle={str.usersSubtitle}
         action={
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {isSuperAdmin && <PrimaryButton onClick={() => setCoordOpen(true)}>Add coordinator</PrimaryButton>}
-            <PrimaryButton onClick={() => setSupOpen(true)}>Add supervisor</PrimaryButton>
+            {isSuperAdmin && <PrimaryButton onClick={() => setCoordOpen(true)}>{str.addCoordinator}</PrimaryButton>}
+            <PrimaryButton onClick={() => setSupOpen(true)}>{str.addSupervisor}</PrimaryButton>
           </div>
         }
       />
@@ -1337,7 +1384,7 @@ function UsersPage({ headers, isSuperAdmin }) {
 
       {isSuperAdmin && (
         <section style={{ marginBottom: 28 }}>
-          <h2 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 12px", color: t.muted }}>Cluster coordinators</h2>
+          <h2 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 12px", color: t.muted }}>{str.clusterCoordinators}</h2>
           <DataTable
             columns={[
               { key: "fullName", label: "Name" },
@@ -1492,6 +1539,7 @@ function UsersPage({ headers, isSuperAdmin }) {
 }
 
 function SchoolsPage({ headers }) {
+  const { str } = useI18n();
   const [schools, setSchools] = useState([]);
   const [nameFilter, setNameFilter] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
@@ -1630,31 +1678,31 @@ function SchoolsPage({ headers }) {
   return (
     <>
       <PageHeader
-        title="Schools"
-        subtitle="Schools in your scope with geo check-in radius."
-        action={<PrimaryButton onClick={() => setModalOpen(true)}>Add school</PrimaryButton>}
+        title={str.schoolsTitle}
+        subtitle={str.schoolsSubtitle}
+        action={<PrimaryButton onClick={() => setModalOpen(true)}>{str.addSchool}</PrimaryButton>}
       />
       {message && <Alert type={message.type}>{message.text}</Alert>}
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <Input placeholder="Filter by name" value={nameFilter} onChange={(e) => setNameFilter(e.target.value)} style={{ maxWidth: 240 }} />
-        <GhostButton onClick={load}>Apply</GhostButton>
+        <Input placeholder={str.filterByName} value={nameFilter} onChange={(e) => setNameFilter(e.target.value)} style={{ maxWidth: 240 }} />
+        <GhostButton onClick={load}>{str.apply}</GhostButton>
         <GhostButton
           onClick={() => {
             setNameFilter("");
             fetch(`${API_BASE}/schools`, { headers }).then((r) => r.json()).then(setSchools);
           }}
         >
-          Clear
+          {str.clearFilter}
         </GhostButton>
       </div>
       <DataTable
         columns={[
-          { key: "name", label: "School" },
+          { key: "name", label: str.tabSchools },
           { key: "grades", label: "Grades" },
           { key: "lat", label: "Latitude" },
           { key: "lon", label: "Longitude" },
           { key: "r", label: "Radius (m)" },
-          { key: "actions", label: "Actions" }
+          { key: "actions", label: str.actions }
         ]}
         rows={schools}
         empty="No schools match."
@@ -1669,8 +1717,8 @@ function SchoolsPage({ headers }) {
           if (key === "actions") {
             return (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <GhostButton onClick={() => openEditSchool(row)} disabled={editBusy}>Edit</GhostButton>
-                <GhostButton onClick={() => openDeleteSchool(row.id)} disabled={deleteBusy}>Delete</GhostButton>
+                <GhostButton onClick={() => openEditSchool(row)} disabled={editBusy}>{str.edit}</GhostButton>
+                <GhostButton onClick={() => openDeleteSchool(row.id)} disabled={deleteBusy}>{str.delete}</GhostButton>
               </div>
             );
           }
@@ -1735,6 +1783,7 @@ function SchoolsPage({ headers }) {
 }
 
 function SchoolStuffPage({ headers, isSuperAdmin }) {
+  const { str } = useI18n();
   const [types, setTypes] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [items, setItems] = useState([]);
@@ -2124,26 +2173,26 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
   return (
     <>
       <PageHeader
-        title="School stuff"
-        subtitle="Add teachers, directors, and other staff types (roles-driven)."
+        title={str.schoolStuffTitle}
+        subtitle={str.schoolStuffSubtitle}
         action={
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <PrimaryButton onClick={openAddStuff}>Add stuff</PrimaryButton>
-            <GhostButton onClick={() => setTypeMgmtOpen(true)}>Add type</GhostButton>
-            <GhostButton onClick={() => { setTypesManageOpen(true); loadTypes(); }}>Manage types</GhostButton>
-            <GhostButton onClick={() => { setSubjectsManageOpen(true); loadSubjects(); }}>Manage subjects</GhostButton>
+            <PrimaryButton onClick={openAddStuff}>{str.addStuff}</PrimaryButton>
+            <GhostButton onClick={() => setTypeMgmtOpen(true)}>{str.addType}</GhostButton>
+            <GhostButton onClick={() => { setTypesManageOpen(true); loadTypes(); }}>{str.manageTypes}</GhostButton>
+            <GhostButton onClick={() => { setSubjectsManageOpen(true); loadSubjects(); }}>{str.manageSubjects}</GhostButton>
           </div>
         }
       />
       {message && <Alert type={message.type}>{message.text}</Alert>}
       <div style={{ marginBottom: 16 }}>
-        <Label>School filter</Label>
+        <Label>{str.schoolFilter}</Label>
         <select
           value={filterSchoolId}
           onChange={(e) => setFilterSchoolId(e.target.value)}
           style={{ fontFamily: t.font, padding: "10px 12px", borderRadius: t.radius, border: `1px solid ${t.line}`, minWidth: 260 }}
         >
-          <option value="">All in scope</option>
+          <option value="">{str.allInScope}</option>
           {schools.map((s) => (
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
@@ -2151,8 +2200,8 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
       </div>
       <DataTable
         columns={[
-          { key: "type", label: "Type" },
-          { key: "fullName", label: "Name" },
+          { key: "type", label: str.typeColumn },
+          { key: "fullName", label: str.name },
           { key: "subject", label: "Subject" },
           { key: "schoolName", label: "School" },
           { key: "username", label: "Username" },
@@ -2467,6 +2516,7 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
 }
 
 function TeachersPage({ headers, isSuperAdmin }) {
+  const { str } = useI18n();
   const [teachers, setTeachers] = useState([]);
   const [schools, setSchools] = useState([]);
   const [subjects, setSubjects] = useState([]);
@@ -2585,28 +2635,28 @@ function TeachersPage({ headers, isSuperAdmin }) {
 
   return (
     <>
-      <PageHeader title="Teachers" subtitle="Teachers linked to schools in your scope." action={<PrimaryButton onClick={() => setModalOpen(true)}>Add teacher</PrimaryButton>} />
+      <PageHeader title={str.teachersTitle} subtitle={str.teachersSubtitle} action={<PrimaryButton onClick={() => setModalOpen(true)}>{str.addTeacher}</PrimaryButton>} />
       {message && <Alert type={message.type}>{message.text}</Alert>}
       <div style={{ marginBottom: 16 }}>
-        <Label>School filter</Label>
+        <Label>{str.schoolFilter}</Label>
         <select
           value={filterSchoolId}
           onChange={(e) => setFilterSchoolId(e.target.value)}
           style={{ fontFamily: t.font, padding: "10px 12px", borderRadius: t.radius, border: `1px solid ${t.line}`, minWidth: 220 }}
         >
-          <option value="">All in scope</option>
+          <option value="">{str.allInScope}</option>
           {schools.map((s) => (
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
-        <GhostButton onClick={loadTeachers} style={{ marginLeft: 8 }}>Refresh</GhostButton>
+        <GhostButton onClick={loadTeachers} style={{ marginLeft: 8 }}>{str.refresh}</GhostButton>
       </div>
       <DataTable
         columns={[
-          { key: "name", label: "Name" },
+          { key: "name", label: str.name },
           { key: "subject", label: "Subject" },
-          { key: "schoolName", label: "School" },
-          { key: "actions", label: "Actions" }
+          { key: "schoolName", label: str.tabSchools },
+          { key: "actions", label: str.actions }
         ]}
         rows={teachers}
         empty="No teachers."
@@ -2733,6 +2783,7 @@ function TeachersPage({ headers, isSuperAdmin }) {
 }
 
 function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
+  const { str } = useI18n();
   const SUPPORTED_LANGS = ["en", "am"];
   const LANG_LABEL = { en: "English", am: "Amharic" };
   const [items, setItems] = useState([]);
@@ -3183,14 +3234,14 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
   return (
     <>
       <PageHeader
-        title="Checklists"
-        subtitle="Grade groups, checklist definitions, and publishing."
-        action={<GhostButton onClick={openGradeGroupModal}>New grade group</GhostButton>}
+        title={str.checklistsTitle}
+        subtitle={str.checklistsSubtitle}
+        action={<GhostButton onClick={openGradeGroupModal}>{str.newGradeGroup}</GhostButton>}
       />
       {message && <Alert type={message.type}>{message.text}</Alert>}
 
       <Card style={{ padding: 20, marginBottom: 20 }}>
-        <h2 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 600 }}>New checklist</h2>
+        <h2 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 600 }}>{str.newChecklist}</h2>
         <form onSubmit={create} style={{ display: "grid", gap: 12, maxWidth: 480 }}>
           <Input placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} required />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -3964,8 +4015,9 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
 }
 
 function ChecklistItemsPage({ headers, initialChecklistId }) {
+  const { str } = useI18n();
   const SUPPORTED_LANGS = ["en", "am"];
-  const LANG_LABEL = { en: "English", am: "Amharic" };
+  const LANG_LABEL = { en: str.english, am: str.amharic };
   const [items, setItems] = useState([]);
   const [publishingChecklistId, setPublishingChecklistId] = useState(initialChecklistId || "");
   const [draftItems, setDraftItems] = useState([]);
@@ -4072,31 +4124,28 @@ function ChecklistItemsPage({ headers, initialChecklistId }) {
 
   return (
     <>
-      <PageHeader
-        title="Checklist items"
-        subtitle="Load one checklist, edit questions/answers, and publish a new version."
-      />
+      <PageHeader title={str.checklistItemsTitle} subtitle={str.checklistItemsSubtitle} />
       {message && <Alert type={message.type}>{message.text}</Alert>}
 
       <Card style={{ padding: 20, marginBottom: 20 }}>
         <div style={{ display: "grid", gap: 12 }}>
           <div>
-            <Label>Checklist</Label>
+            <Label>{str.checklistLabel}</Label>
             <select
               value={publishingChecklistId}
               onChange={(e) => setPublishingChecklistId(e.target.value)}
               style={{ padding: 10, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font, width: "100%" }}
             >
-              <option value="">Select checklist…</option>
+              <option value="">{str.selectChecklist}</option>
               {items.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.title}{c.activeVersion == null ? " (draft)" : ` · v${c.activeVersion}`}
+                  {c.title}{c.activeVersion == null ? str.draftOption : ` · v${c.activeVersion}`}
                 </option>
               ))}
             </select>
           </div>
           <div>
-            <Label>Edit language</Label>
+            <Label>{str.editLanguage}</Label>
             <select
               value={editingLang}
               onChange={(e) => setEditingLang(e.target.value)}
@@ -4131,9 +4180,13 @@ function ChecklistItemsPage({ headers, initialChecklistId }) {
               const normalizedChoices = choices.length >= minChoices ? choices : (item.type === "YES_NO" ? ["YES", "NO"] : [""]);
               return (
                 <Card key={index} style={{ padding: 14, background: t.accentSoft }}>
-                  <strong style={{ fontSize: 13 }}>Item {index + 1}</strong>
+                  <strong style={{ fontSize: 13 }}>
+                    {str.itemLabel} {index + 1}
+                  </strong>
                   <div style={{ marginTop: 8 }}>
-                    <Label>Question ({LANG_LABEL[editingLang] ?? editingLang})</Label>
+                    <Label>
+                      {str.questionWord} ({LANG_LABEL[editingLang] ?? editingLang})
+                    </Label>
                     <Input
                       value={questionLocalizedText[editingLang] ?? ""}
                       onChange={(e) => {
@@ -4154,7 +4207,7 @@ function ChecklistItemsPage({ headers, initialChecklistId }) {
                   </div>
                   {isChoiceType && (
                     <div style={{ marginTop: 8 }}>
-                      <Label>Answers</Label>
+                      <Label>{str.answersOptions}</Label>
                       <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
                         {normalizedChoices.map((c, choiceIndex) => (
                           <Input
@@ -4189,9 +4242,9 @@ function ChecklistItemsPage({ headers, initialChecklistId }) {
             })}
             <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: t.text }}>
               <input type="checkbox" checked={skipAutoOnPublish} onChange={(e) => setSkipAutoOnPublish(e.target.checked)} />
-              Skip automatic supervisor assignment for this publish
+              {str.skipAutoAssignPublish}
             </label>
-            <PrimaryButton type="submit">Save & publish</PrimaryButton>
+            <PrimaryButton type="submit">{str.saveAndPublish}</PrimaryButton>
           </form>
         </Card>
       )}
@@ -4423,6 +4476,7 @@ function SupervisorChecklistField({ item, value, onChange }) {
 }
 
 function SupervisorVisitPanel({ headers, assignmentId, onBack, onCompleted }) {
+  const { str, locale } = useI18n();
   const [render, setRender] = useState(null);
   const [answers, setAnswers] = useState({});
   const [step, setStep] = useState("form");
@@ -4438,19 +4492,19 @@ function SupervisorVisitPanel({ headers, assignmentId, onBack, onCompleted }) {
     let cancelled = false;
     (async () => {
       try {
-        const lang = typeof navigator !== "undefined" && navigator.language?.toLowerCase().startsWith("am") ? "am" : "en";
+        const lang = locale === "am" ? "am" : "en";
         const res = await fetch(`${API_BASE}/assignments/${assignmentId}/render?lang=${encodeURIComponent(lang)}`, { headers });
-        if (!res.ok) throw new Error("Could not load checklist");
+        if (!res.ok) throw new Error(str.couldNotLoadChecklist);
         const data = await res.json();
         if (!cancelled) setRender(data);
       } catch (e) {
-        if (!cancelled) setMsg({ type: "error", text: e.message || "Load failed" });
+        if (!cancelled) setMsg({ type: "error", text: e.message || str.loadFailedShort });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [assignmentId, headers]);
+  }, [assignmentId, headers, locale]);
 
   useEffect(() => {
     if (step !== "sign") return undefined;
@@ -4474,7 +4528,7 @@ function SupervisorVisitPanel({ headers, assignmentId, onBack, onCompleted }) {
     } catch {
       const lat = Number(manualLat);
       const lon = Number(manualLon);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error("Enter valid latitude and longitude (or allow browser location).");
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error(str.enterValidLatLon);
       return { latitude: lat, longitude: lon };
     }
   };
@@ -4493,7 +4547,7 @@ function SupervisorVisitPanel({ headers, assignmentId, onBack, onCompleted }) {
       });
       if (!startRes.ok) {
         const j = await startRes.json().catch(() => ({}));
-        throw new Error(j.message || "Could not start visit");
+        throw new Error(j.message || str.couldNotStartVisit);
       }
       const payloadAnswers = [];
       for (const it of render.items) {
@@ -4515,7 +4569,7 @@ function SupervisorVisitPanel({ headers, assignmentId, onBack, onCompleted }) {
       });
       if (!subRes.ok) {
         const j = await subRes.json().catch(() => ({}));
-        throw new Error(j.message || "Submit failed");
+        throw new Error(j.message || str.submitFailedShort);
       }
       const rawSubmit = await subRes.text();
       let idStr = rawSubmit.trim();
@@ -4524,12 +4578,12 @@ function SupervisorVisitPanel({ headers, assignmentId, onBack, onCompleted }) {
       } catch {
         idStr = idStr.replace(/^"|"$/g, "").trim();
       }
-      if (!idStr) throw new Error("No review id returned");
+      if (!idStr) throw new Error(str.noReviewIdReturned);
       setReviewId(idStr);
       setStep("sign");
-      setMsg({ type: "ok", text: "Review saved. Add signatures below." });
+      setMsg({ type: "ok", text: str.reviewSavedSignatures });
     } catch (err) {
-      setMsg({ type: "error", text: err.message || "Failed" });
+      setMsg({ type: "error", text: err.message || str.failedGeneric });
     } finally {
       setBusy(false);
     }
@@ -4546,7 +4600,7 @@ function SupervisorVisitPanel({ headers, assignmentId, onBack, onCompleted }) {
     try {
       const tB64 = supervisorCanvasPngBase64(t);
       const dB64 = supervisorCanvasPngBase64(d);
-      if (tB64.length < 50 || dB64.length < 50) throw new Error("Please sign in both boxes.");
+      if (tB64.length < 50 || dB64.length < 50) throw new Error(str.pleaseSignBoth);
       const r1 = await fetch(`${API_BASE}/reviews/${reviewId}/signatures`, {
         method: "POST",
         headers: jsonHeaders(headers),
@@ -4554,7 +4608,7 @@ function SupervisorVisitPanel({ headers, assignmentId, onBack, onCompleted }) {
       });
       if (!r1.ok) {
         const j = await r1.json().catch(() => ({}));
-        throw new Error(j.message || "Teacher signature failed");
+        throw new Error(j.message || str.teacherSignatureFailedShort);
       }
       const r2 = await fetch(`${API_BASE}/reviews/${reviewId}/signatures`, {
         method: "POST",
@@ -4563,13 +4617,13 @@ function SupervisorVisitPanel({ headers, assignmentId, onBack, onCompleted }) {
       });
       if (!r2.ok) {
         const j = await r2.json().catch(() => ({}));
-        throw new Error(j.message || "Director signature failed");
+        throw new Error(j.message || str.directorSignatureFailedShort);
       }
-      setMsg({ type: "ok", text: "Visit complete." });
+      setMsg({ type: "ok", text: str.visitCompleteNotice });
       setStep("done");
       onCompleted?.();
     } catch (err) {
-      setMsg({ type: "error", text: err.message || "Signatures failed" });
+      setMsg({ type: "error", text: err.message || str.signaturesFailedShort });
     } finally {
       setBusy(false);
     }
@@ -4578,30 +4632,34 @@ function SupervisorVisitPanel({ headers, assignmentId, onBack, onCompleted }) {
   if (!render) {
     return (
       <Card style={{ padding: 20 }}>
-        <p style={{ margin: 0, color: t.muted }}>Loading checklist…</p>
+        <p style={{ margin: 0, color: t.muted }}>{str.loadingChecklist}</p>
         {msg?.type === "error" && <Alert type="error">{msg.text}</Alert>}
-        <GhostButton onClick={onBack}>Back</GhostButton>
+        <GhostButton onClick={onBack}>{str.back}</GhostButton>
       </Card>
     );
   }
 
-  const title = `Checklist (v${render.version ?? "?"})`;
+  const title = `${str.checklistWord} (v${render.version ?? "?"})`;
 
   if (step === "sign") {
     return (
       <Card style={{ padding: 20 }}>
-        <PageHeader title="Signatures" subtitle="Draw both signatures (same as the mobile app)." action={<GhostButton onClick={onBack}>Close</GhostButton>} />
+        <PageHeader
+          title={str.signaturesTitle}
+          subtitle={str.signaturesSubtitle}
+          action={<GhostButton onClick={onBack}>{str.close}</GhostButton>}
+        />
         {msg && <Alert type={msg.type}>{msg.text}</Alert>}
-        <p style={{ color: t.muted, fontSize: 14 }}>Teacher</p>
+        <p style={{ color: t.muted, fontSize: 14 }}>{str.teacherSigner}</p>
         <canvas ref={teacherCanvasRef} width={340} height={150} style={{ border: `1px solid ${t.line}`, borderRadius: t.radius, touchAction: "none", maxWidth: "100%" }} />
-        <p style={{ color: t.muted, fontSize: 14, marginTop: 16 }}>School director</p>
+        <p style={{ color: t.muted, fontSize: 14, marginTop: 16 }}>{str.directorSigner}</p>
         <canvas ref={directorCanvasRef} width={340} height={150} style={{ border: `1px solid ${t.line}`, borderRadius: t.radius, touchAction: "none", maxWidth: "100%" }} />
         <div style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
           <PrimaryButton type="button" disabled={busy} onClick={submitSignatures}>
-            {busy ? "Saving…" : "Save signatures"}
+            {busy ? str.savingEllipsis : str.saveSignatures}
           </PrimaryButton>
           <GhostButton type="button" onClick={onBack}>
-            Back to list
+            {str.backToList}
           </GhostButton>
         </div>
       </Card>
@@ -4611,9 +4669,9 @@ function SupervisorVisitPanel({ headers, assignmentId, onBack, onCompleted }) {
   if (step === "done") {
     return (
       <Card style={{ padding: 20 }}>
-        <p style={{ margin: "0 0 12px", fontSize: 15 }}>This visit is complete.</p>
+        <p style={{ margin: "0 0 12px", fontSize: 15 }}>{str.visitComplete}</p>
         <PrimaryButton type="button" onClick={onBack}>
-          Back to assignments
+          {str.backToAssignments}
         </PrimaryButton>
       </Card>
     );
@@ -4621,17 +4679,21 @@ function SupervisorVisitPanel({ headers, assignmentId, onBack, onCompleted }) {
 
   return (
     <Card style={{ padding: 20 }}>
-      <PageHeader title={title} subtitle="Answer all required items, then submit. Location is used for the school geo check." action={<GhostButton onClick={onBack}>Back</GhostButton>} />
+      <PageHeader
+        title={title}
+        subtitle={str.answerChecklistSubtitle}
+        action={<GhostButton onClick={onBack}>{str.back}</GhostButton>}
+      />
       {msg && <Alert type={msg.type}>{msg.text}</Alert>}
       <details style={{ marginBottom: 16, fontSize: 13, color: t.muted }}>
-        <summary style={{ cursor: "pointer" }}>Location (if the browser blocks GPS, enter coordinates)</summary>
+        <summary style={{ cursor: "pointer" }}>{str.locationGpsSummary}</summary>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
           <div>
-            <Label>Latitude</Label>
+            <Label>{str.latitudeLabel}</Label>
             <Input value={manualLat} onChange={(e) => setManualLat(e.target.value)} />
           </div>
           <div>
-            <Label>Longitude</Label>
+            <Label>{str.longitudeLabel}</Label>
             <Input value={manualLon} onChange={(e) => setManualLon(e.target.value)} />
           </div>
         </div>
@@ -4641,7 +4703,7 @@ function SupervisorVisitPanel({ headers, assignmentId, onBack, onCompleted }) {
           <SupervisorChecklistField key={it.id} item={it} value={answers[it.id]} onChange={(v) => setAnswer(it.id, v)} />
         ))}
         <PrimaryButton type="submit" disabled={busy}>
-          {busy ? "Submitting…" : "Submit visit"}
+          {busy ? str.submittingEllipsis : str.submitVisit}
         </PrimaryButton>
       </form>
     </Card>
@@ -4649,6 +4711,7 @@ function SupervisorVisitPanel({ headers, assignmentId, onBack, onCompleted }) {
 }
 
 function SupervisorMyAssignmentsPage({ headers }) {
+  const { str } = useI18n();
   const [items, setItems] = useState([]);
   const [workload, setWorkload] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -4665,19 +4728,19 @@ function SupervisorMyAssignmentsPage({ headers }) {
       ]);
       if (!aRes.ok) {
         const j = await aRes.json().catch(() => ({}));
-        throw new Error(j.message || "Could not load assignments");
+        throw new Error(j.message || str.couldNotLoadAssignments);
       }
       const list = await aRes.json();
       setItems(Array.isArray(list) ? list : []);
       if (wRes.ok) setWorkload(await wRes.json());
       else setWorkload(null);
     } catch (e) {
-      setErr(e.message || "Failed to load");
+      setErr(e.message || str.failedToLoadShort);
       setItems([]);
     } finally {
       setLoading(false);
     }
-  }, [headers]);
+  }, [headers, str]);
 
   useEffect(() => {
     load();
@@ -4696,22 +4759,26 @@ function SupervisorMyAssignmentsPage({ headers }) {
 
   return (
     <>
-      <PageHeader title="My assignments" subtitle="Field visits assigned to you—open a checklist, submit answers, then capture signatures." action={<GhostButton onClick={load}>Refresh</GhostButton>} />
+      <PageHeader
+        title={str.myAssignmentsTitle}
+        subtitle={str.myAssignmentsSubtitle}
+        action={<GhostButton onClick={load}>{str.refresh}</GhostButton>}
+      />
       {err && <Alert type="error">{err}</Alert>}
       {workload && (
         <Card style={{ padding: 16, marginBottom: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>At a glance</div>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{str.supervisorAtAGlance}</div>
           <p style={{ margin: 0, fontSize: 14, color: t.muted, lineHeight: 1.5 }}>
-            {workload.completedAssignments ?? 0} done · {workload.pendingAssignments ?? 0} pending · {workload.inProgressAssignments ?? 0} in progress ·{" "}
-            {workload.overdueAssignments ?? 0} overdue · {workload.visitsCompleted ?? 0} visits
+            {workload.completedAssignments ?? 0} {str.doneWord} · {workload.pendingAssignments ?? 0} {str.pendingWord} · {workload.inProgressAssignments ?? 0}{" "}
+            {str.inProgressWord} · {workload.overdueAssignments ?? 0} {str.overdueWord} · {workload.visitsCompleted ?? 0} {str.visitsWord}
           </p>
         </Card>
       )}
       {loading ? (
-        <p style={{ color: t.muted }}>Loading…</p>
+        <p style={{ color: t.muted }}>{str.loadingEllipsis}</p>
       ) : items.length === 0 ? (
         <Card style={{ padding: 24 }}>
-          <p style={{ margin: 0, color: t.muted }}>No assignments yet. Ask your coordinator to assign a checklist.</p>
+          <p style={{ margin: 0, color: t.muted }}>{str.noAssignmentsYet}</p>
         </Card>
       ) : (
         <div style={{ display: "grid", gap: 10 }}>
@@ -4719,20 +4786,22 @@ function SupervisorMyAssignmentsPage({ headers }) {
             const id = a.id;
             const status = a.status || "UNKNOWN";
             const done = status === "COMPLETED";
-            const short = id && String(id).length >= 8 ? `${String(id).slice(0, 8)}…` : "Assignment";
+            const short = id && String(id).length >= 8 ? `${String(id).slice(0, 8)}…` : str.assignmentFallback;
             return (
               <Card key={id} style={{ padding: 16 }}>
                 <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
                   <div>
                     <div style={{ fontWeight: 600 }}>{short}</div>
                     <div style={{ fontSize: 13, color: t.muted, marginTop: 4 }}>
-                      Target: {a.targetType || "—"} · Due: {a.dueDate || "Not set"}
+                      {str.targetPrefix} {a.targetType || "—"} · {str.duePrefix} {a.dueDate || str.notSet}
                     </div>
-                    <div style={{ fontSize: 12, color: t.muted, marginTop: 4 }}>Status: {String(status).replace(/_/g, " ")}</div>
+                    <div style={{ fontSize: 12, color: t.muted, marginTop: 4 }}>
+                      {str.statusPrefix} {String(status).replace(/_/g, " ")}
+                    </div>
                   </div>
                   {!done && (
                     <PrimaryButton type="button" onClick={() => setVisitId(String(id))}>
-                      Start visit
+                      {str.startVisit}
                     </PrimaryButton>
                   )}
                 </div>
@@ -4746,6 +4815,7 @@ function SupervisorMyAssignmentsPage({ headers }) {
 }
 
 function AssignmentsPage({ headers }) {
+  const { str } = useI18n();
   const [items, setItems] = useState([]);
   const [checklists, setChecklists] = useState([]);
   const [versions, setVersions] = useState([]);
@@ -4849,12 +4919,12 @@ function AssignmentsPage({ headers }) {
         try {
           details = await res.json();
         } catch (_) {}
-        throw new Error(details?.message || "Assignment failed.");
+        throw new Error(details?.message || str.assignmentFailed);
       }
 
       setMessage({
         type: "ok",
-        text: editingAssignmentId ? "Assignment updated." : "Assignment created."
+        text: editingAssignmentId ? str.assignmentUpdated : str.assignmentCreated
       });
       setModalOpen(false);
       setEditingAssignmentId("");
@@ -4885,10 +4955,10 @@ function AssignmentsPage({ headers }) {
         try {
           details = await res.json();
         } catch (_) {}
-        throw new Error(details?.message || "Assignment delete failed.");
+        throw new Error(details?.message || str.assignmentDeleteFailed);
       }
       setDeleteModalOpen(false);
-      setMessage({ type: "ok", text: "Assignment deleted." });
+      setMessage({ type: "ok", text: str.assignmentDeleted });
       await load();
     } catch (err) {
       setMessage({ type: "error", text: err.message });
@@ -4900,18 +4970,24 @@ function AssignmentsPage({ headers }) {
 
   return (
     <>
-      <PageHeader title="Assignments" subtitle="Link checklists to supervisors and targets." action={<PrimaryButton onClick={openCreateAssignment}>New assignment</PrimaryButton>} />
+      <PageHeader
+        title={str.assignmentsTitle}
+        subtitle={str.assignmentsSubtitle}
+        action={<PrimaryButton onClick={openCreateAssignment}>{str.newAssignment}</PrimaryButton>}
+      />
       {message && <Alert type={message.type}>{message.text}</Alert>}
-      <GhostButton onClick={load} style={{ marginBottom: 12 }}>Refresh list</GhostButton>
+      <GhostButton onClick={load} style={{ marginBottom: 12 }}>
+        {str.refreshList}
+      </GhostButton>
       <DataTable
         columns={[
-          { key: "targetType", label: "Target" },
-          { key: "status", label: "Status" },
-          { key: "dueDate", label: "Due" },
-          { key: "actions", label: "Actions" }
+          { key: "targetType", label: str.reportColTarget },
+          { key: "status", label: str.columnStatus },
+          { key: "dueDate", label: str.columnDue },
+          { key: "actions", label: str.actions }
         ]}
         rows={items}
-        empty="No assignments."
+        empty={str.noAssignmentsRows}
         renderCell={(key, row) => {
           if (key === "dueDate") return row.dueDate || "—";
           if (key === "actions") {
@@ -4919,10 +4995,10 @@ function AssignmentsPage({ headers }) {
             return (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <GhostButton onClick={() => openEditAssignment(row)} disabled={editBusy || !isPending}>
-                  Edit
+                  {str.edit}
                 </GhostButton>
                 <GhostButton onClick={() => openDeleteAssignment(row.id)} disabled={deleteBusy || !isPending}>
-                  Delete
+                  {str.delete}
                 </GhostButton>
               </div>
             );
@@ -4931,7 +5007,12 @@ function AssignmentsPage({ headers }) {
         }}
       />
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingAssignmentId ? "Edit assignment" : "New assignment"} wide>
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editingAssignmentId ? str.editAssignmentTitle : str.newAssignment}
+        wide
+      >
         <form onSubmit={saveAssignment} style={{ display: "grid", gap: 12 }}>
           <select
             required
@@ -4939,7 +5020,7 @@ function AssignmentsPage({ headers }) {
             onChange={(e) => setForm((p) => ({ ...p, checklistId: e.target.value, checklistVersionId: "" }))}
             style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}` }}
           >
-            <option value="">Checklist…</option>
+            <option value="">{str.selectChecklist}</option>
             {checklists.map((c) => (
               <option key={c.id} value={c.id}>{c.title}{c.purpose ? ` · ${c.purpose}` : ""}</option>
             ))}
@@ -4950,7 +5031,7 @@ function AssignmentsPage({ headers }) {
             onChange={(e) => setForm((p) => ({ ...p, checklistVersionId: e.target.value }))}
             style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}` }}
           >
-            <option value="">Version…</option>
+            <option value="">{str.selectVersion}</option>
             {versions.map((v) => (
               <option key={v.id} value={v.id}>v{v.versionNo} ({v.status})</option>
             ))}
@@ -4961,7 +5042,7 @@ function AssignmentsPage({ headers }) {
             onChange={(e) => setForm((p) => ({ ...p, supervisorId: e.target.value }))}
             style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}` }}
           >
-            <option value="">Supervisor…</option>
+            <option value="">{str.selectSupervisor}</option>
             {supervisors.map((u) => (
               <option key={u.id} value={u.id}>{u.fullName}</option>
             ))}
@@ -4980,10 +5061,10 @@ function AssignmentsPage({ headers }) {
             }}
             style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}` }}
           >
-            <option value="SCHOOL">School</option>
-            <option value="TEACHER">Teacher</option>
-            <option value="DIRECTOR">Director (by school)</option>
-            <option value="SCHOOL_STAFF">School staff (user)</option>
+            <option value="SCHOOL">{str.targetTypeSchool}</option>
+            <option value="TEACHER">{str.targetTypeTeacher}</option>
+            <option value="DIRECTOR">{str.targetTypeDirector}</option>
+            <option value="SCHOOL_STAFF">{str.targetTypeSchoolStaff}</option>
           </select>
           {ASSIGNMENT_SCHOOL_TARGETS.has(form.targetType) && (
             <select
@@ -4992,7 +5073,7 @@ function AssignmentsPage({ headers }) {
               onChange={(e) => setForm((p) => ({ ...p, schoolId: e.target.value }))}
               style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}` }}
             >
-              <option value="">School…</option>
+              <option value="">{str.selectSchool}</option>
               {schools.map((s) => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
@@ -5005,7 +5086,7 @@ function AssignmentsPage({ headers }) {
               onChange={(e) => setForm((p) => ({ ...p, teacherId: e.target.value }))}
               style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}` }}
             >
-              <option value="">Teacher…</option>
+              <option value="">{str.selectTeacher}</option>
               {teachers.map((t) => (
                 <option key={t.id} value={t.id}>{t.name} · {t.subject}{t.schoolName ? ` · ${t.schoolName}` : ""}</option>
               ))}
@@ -5018,7 +5099,7 @@ function AssignmentsPage({ headers }) {
               onChange={(e) => setForm((p) => ({ ...p, staffUserId: e.target.value }))}
               style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}` }}
             >
-              <option value="">Staff member…</option>
+              <option value="">{str.selectStaffMember}</option>
               {schoolStuff
                 .filter((s) => s.type && s.type !== "TEACHER")
                 .map((s) => (
@@ -5030,7 +5111,7 @@ function AssignmentsPage({ headers }) {
           )}
           <Input type="datetime-local" value={form.dueDate} onChange={(e) => setForm((p) => ({ ...p, dueDate: e.target.value }))} />
           <PrimaryButton type="submit" disabled={editBusy}>
-            {editBusy ? "Saving…" : editingAssignmentId ? "Save changes" : "Create"}
+            {editBusy ? str.savingEllipsis : editingAssignmentId ? str.saveChanges : str.create}
           </PrimaryButton>
         </form>
       </Modal>
@@ -5038,16 +5119,16 @@ function AssignmentsPage({ headers }) {
       <Modal
         open={deleteModalOpen}
         onClose={() => (!deleteBusy ? setDeleteModalOpen(false) : null)}
-        title="Delete assignment"
+        title={str.deleteAssignmentTitle}
       >
         <form onSubmit={confirmDeleteAssignment} style={{ display: "grid", gap: 12 }}>
-          <p style={{ margin: 0, color: t.muted, fontSize: 14 }}>Deletion is allowed only for PENDING assignments.</p>
+          <p style={{ margin: 0, color: t.muted, fontSize: 14 }}>{str.deletePendingOnlyNote}</p>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <GhostButton type="button" onClick={() => setDeleteModalOpen(false)} disabled={deleteBusy}>
-              Cancel
+              {str.cancel}
             </GhostButton>
             <PrimaryButton type="submit" disabled={deleteBusy}>
-              {deleteBusy ? "Deleting…" : "Delete"}
+              {deleteBusy ? str.deletingEllipsis : str.delete}
             </PrimaryButton>
           </div>
         </form>
@@ -5057,6 +5138,7 @@ function AssignmentsPage({ headers }) {
 }
 
 function SupervisionActivityPage({ headers }) {
+  const { str } = useI18n();
   const [summaries, setSummaries] = useState([]);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selected, setSelected] = useState(null);
@@ -5064,17 +5146,17 @@ function SupervisionActivityPage({ headers }) {
   const [loadingVisits, setLoadingVisits] = useState(false);
   const [error, setError] = useState("");
 
-  const loadSummaries = () => {
+  const loadSummaries = useCallback(() => {
     setError("");
     fetch(`${API_BASE}/supervision/supervisor-summaries`, { headers })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then(setSummaries)
-      .catch(() => setError("Failed to load summaries."));
-  };
+      .catch(() => setError(str.activityLoadFailed));
+  }, [headers, str]);
 
   useEffect(() => {
     loadSummaries();
-  }, [headers]);
+  }, [loadSummaries]);
 
   const openVisits = async (row) => {
     setSelected(row);
@@ -5086,7 +5168,7 @@ function SupervisionActivityPage({ headers }) {
       if (!r.ok) throw new Error();
       setVisits(await r.json());
     } catch {
-      setError("Could not load visits.");
+      setError(str.activityVisitsFailed);
     } finally {
       setLoadingVisits(false);
     }
@@ -5094,32 +5176,43 @@ function SupervisionActivityPage({ headers }) {
 
   return (
     <>
-      <PageHeader title="Supervisor activity" subtitle="Completed field visits and assignment health." action={<GhostButton onClick={loadSummaries}>Refresh</GhostButton>} />
+      <PageHeader
+        title={str.supervisorActivityTitle}
+        subtitle={str.supervisorActivitySubtitle}
+        action={<GhostButton onClick={loadSummaries}>{str.refresh}</GhostButton>}
+      />
       {error && <Alert type="error">{error}</Alert>}
       <DataTable
         columns={[
-          { key: "name", label: "Supervisor" },
-          { key: "visitsCompleted", label: "Visits" },
-          { key: "completedAssignments", label: "Done" },
-          { key: "pendingAssignments", label: "Pending" },
-          { key: "inProgressAssignments", label: "Active" },
-          { key: "overdueAssignments", label: "Overdue" },
+          { key: "name", label: str.activitySupervisorCol },
+          { key: "visitsCompleted", label: str.activityVisitsCol },
+          { key: "completedAssignments", label: str.activityDoneCol },
+          { key: "pendingAssignments", label: str.activityPendingCol },
+          { key: "inProgressAssignments", label: str.activityActiveCol },
+          { key: "overdueAssignments", label: str.activityOverdueCol },
           { key: "_", label: "" }
         ]}
         rows={summaries.map((s) => ({ ...s, id: s.supervisorId, name: `${s.fullName} (${s.username})` }))}
-        empty="No supervisors in scope."
+        empty={str.activityNoSupervisors}
         renderCell={(key, row) => {
           if (key === "_") {
-            return <GhostButton onClick={() => openVisits(row)}>Details</GhostButton>;
+            return <GhostButton onClick={() => openVisits(row)}>{str.activityDetails}</GhostButton>;
           }
           return row[key];
         }}
       />
 
-      <Modal open={detailOpen} onClose={() => setDetailOpen(false)} title={selected ? `Visits · ${selected.fullName}` : "Visits"} wide>
-        {loadingVisits ? <p style={{ color: t.muted }}>Loading…</p> : (
+      <Modal
+        open={detailOpen}
+        onClose={() => setDetailOpen(false)}
+        title={selected ? `${str.visitsModalTitle} · ${selected.fullName}` : str.visitsModalTitle}
+        wide
+      >
+        {loadingVisits ? (
+          <p style={{ color: t.muted }}>{str.loadingEllipsis}</p>
+        ) : (
           <ul style={{ margin: 0, paddingLeft: 18, listStyle: "disc" }}>
-            {visits.length === 0 && <li style={{ color: t.muted }}>No completed visits.</li>}
+            {visits.length === 0 && <li style={{ color: t.muted }}>{str.noCompletedVisits}</li>}
             {visits.map((v) => (
               <li key={v.reviewId} style={{ marginBottom: 12 }}>
                 <strong>{v.checklistTitle}</strong> · {v.targetType}
@@ -5139,18 +5232,20 @@ function SupervisionActivityPage({ headers }) {
   );
 }
 
-function formatReportInstant(iso) {
+function formatReportInstant(iso, locale) {
   if (!iso) return "—";
   try {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return String(iso);
-    return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    const loc = locale === "am" ? "am-ET" : undefined;
+    return d.toLocaleString(loc, { dateStyle: "medium", timeStyle: "short" });
   } catch {
     return String(iso);
   }
 }
 
 function ReportsPage({ headers }) {
+  const { str, locale } = useI18n();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -5165,17 +5260,17 @@ function ReportsPage({ headers }) {
       const res = await fetch(`${API_BASE}/reports/submitted-reviews`, { headers });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j.message || "Could not load reports");
+        throw new Error(j.message || str.couldNotLoadReports);
       }
       const data = await res.json();
       setRows(Array.isArray(data) ? data : []);
     } catch (e) {
-      setError(e.message || "Failed to load");
+      setError(e.message || str.failedToLoadShort);
       setRows([]);
     } finally {
       setLoading(false);
     }
-  }, [headers]);
+  }, [headers, str]);
 
   useEffect(() => {
     loadList();
@@ -5202,7 +5297,7 @@ function ReportsPage({ headers }) {
       const res = await fetch(`${API_BASE}/reports/reviews/${reviewId}/pdf`, { headers });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j.message || "Could not load PDF");
+        throw new Error(j.message || str.couldNotLoadPdf);
       }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -5217,7 +5312,7 @@ function ReportsPage({ headers }) {
         return { reviewId, url };
       });
     } catch (e) {
-      setPdfError(e.message || "PDF failed");
+      setPdfError(e.message || str.pdfFailedShort);
     } finally {
       setOpeningReviewId("");
     }
@@ -5233,35 +5328,31 @@ function ReportsPage({ headers }) {
 
   return (
     <>
-      <PageHeader
-        title="Reports"
-        subtitle="Submitted supervision reviews (completed visits). Open a PDF to view or print—your login is sent securely, not as a plain link."
-        action={<GhostButton onClick={loadList}>Refresh</GhostButton>}
-      />
+      <PageHeader title={str.reportsTitle} subtitle={str.reportsSubtitle} action={<GhostButton onClick={loadList}>{str.refresh}</GhostButton>} />
       {error && <Alert type="error">{error}</Alert>}
       {pdfError && <Alert type="error">{pdfError}</Alert>}
 
       {loading ? (
-        <p style={{ color: t.muted }}>Loading reports…</p>
+        <p style={{ color: t.muted }}>{str.loadingReports}</p>
       ) : rows.length === 0 ? (
         <Card style={{ padding: 24 }}>
-          <p style={{ margin: 0, color: t.muted }}>No submitted reports yet. Completed visits appear here after answers and signatures are saved.</p>
+          <p style={{ margin: 0, color: t.muted }}>{str.noReportsYet}</p>
         </Card>
       ) : (
         <DataTable
           columns={[
-            { key: "completed", label: "Completed" },
-            { key: "checklist", label: "Checklist" },
-            { key: "supervisor", label: "Supervisor" },
-            { key: "target", label: "Target" },
-            { key: "place", label: "School / teacher" },
-            { key: "geo", label: "Location" },
+            { key: "completed", label: str.reportColCompleted },
+            { key: "checklist", label: str.reportColChecklist },
+            { key: "supervisor", label: str.reportColSupervisor },
+            { key: "target", label: str.reportColTarget },
+            { key: "place", label: str.reportColPlace },
+            { key: "geo", label: str.reportColGeo },
             { key: "actions", label: "" }
           ]}
           rows={rows}
-          empty="No reports."
+          empty={str.noReportsTable}
           renderCell={(key, row) => {
-            if (key === "completed") return formatReportInstant(row.completedAt);
+            if (key === "completed") return formatReportInstant(row.completedAt, locale);
             if (key === "checklist") return row.checklistTitle || "—";
             if (key === "supervisor") {
               const n = row.supervisorFullName || "—";
@@ -5288,7 +5379,7 @@ function ReportsPage({ headers }) {
                   disabled={openingReviewId === row.reviewId}
                   onClick={() => openPdf(row.reviewId)}
                 >
-                  {openingReviewId === row.reviewId ? "Loading…" : "View report"}
+                  {openingReviewId === row.reviewId ? str.loadingEllipsis : str.viewReport}
                 </PrimaryButton>
               );
             }
@@ -5337,20 +5428,20 @@ function ReportsPage({ headers }) {
                 borderBottom: `1px solid ${t.line}`
               }}
             >
-              <div style={{ fontWeight: 600, fontSize: 15 }}>Review report</div>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>{str.reviewReport}</div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <GhostButton type="button" onClick={printPreview}>
-                  Print
+                  {str.print}
                 </GhostButton>
                 <GhostButton type="button" onClick={closePreview}>
-                  Close
+                  {str.close}
                 </GhostButton>
               </div>
             </div>
             <div style={{ flex: 1, minHeight: 0, padding: 12 }}>
               <iframe
                 id="report-pdf-iframe"
-                title="Review PDF"
+                title={str.reviewPdfIframeTitle}
                 src={preview.url}
                 style={{
                   width: "100%",
@@ -5369,6 +5460,8 @@ function ReportsPage({ headers }) {
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <App />
+    <I18nProvider>
+      <App />
+    </I18nProvider>
   </React.StrictMode>
 );

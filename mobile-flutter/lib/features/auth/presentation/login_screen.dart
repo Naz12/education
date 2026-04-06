@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/auth/session_store.dart';
+import '../../../core/locale/app_locale.dart';
 import '../../../core/network/api_client.dart';
+import '../../../l10n/app_strings.dart';
 import '../../portal/presentation/portal_shell_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -73,10 +75,11 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       setState(() => _error = ApiClient.messageFromError(e));
       if (mounted) {
         final cs = Theme.of(context).colorScheme;
+        final s = AppStrings.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Sign-in failed: ${ApiClient.messageFromError(e)}',
+              s.signInFailed(ApiClient.messageFromError(e)),
               style: TextStyle(color: cs.onErrorContainer),
             ),
             backgroundColor: cs.errorContainer,
@@ -93,6 +96,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final s = AppStrings.of(context);
     return Scaffold(
       body: DecoratedBox(
         decoration: BoxDecoration(
@@ -107,12 +111,23 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           ),
         ),
         child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
-                child: FadeTransition(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: _LoginLanguageMenu(s: s),
+                ),
+              ),
+              Expanded(
+                child: Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: FadeTransition(
                   opacity: _fade,
                   child: SlideTransition(
                     position: _slide,
@@ -141,14 +156,14 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'School Supervision',
+                                        s.appTitle,
                                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                                               fontWeight: FontWeight.w700,
                                               letterSpacing: -0.3,
                                             ),
                                       ),
                                       Text(
-                                        'Sign in to continue',
+                                        s.signInToContinue,
                                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                               color: cs.onSurfaceVariant,
                                             ),
@@ -163,7 +178,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                               tilePadding: EdgeInsets.zero,
                               childrenPadding: const EdgeInsets.only(top: 8, bottom: 4),
                               title: Text(
-                                'Demo accounts',
+                                s.demoAccounts,
                                 style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w600,
@@ -188,9 +203,9 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                               controller: _usernameController,
                               textInputAction: TextInputAction.next,
                               autofillHints: const [AutofillHints.username],
-                              decoration: const InputDecoration(
-                                labelText: 'Username',
-                                prefixIcon: Icon(Icons.person_outline_rounded),
+                              decoration: InputDecoration(
+                                labelText: s.username,
+                                prefixIcon: const Icon(Icons.person_outline_rounded),
                               ),
                             ),
                             const SizedBox(height: 12),
@@ -200,10 +215,10 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                               onSubmitted: (_) => _loading ? null : _signIn(),
                               autofillHints: const [AutofillHints.password],
                               decoration: InputDecoration(
-                                labelText: 'Password',
+                                labelText: s.password,
                                 prefixIcon: const Icon(Icons.lock_outline_rounded),
                                 suffixIcon: IconButton(
-                                  tooltip: _obscurePassword ? 'Show password' : 'Hide password',
+                                  tooltip: _obscurePassword ? s.showPassword : s.hidePassword,
                                   onPressed: () {
                                     HapticFeedback.selectionClick();
                                     setState(() => _obscurePassword = !_obscurePassword);
@@ -217,7 +232,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                             if (_error != null) ...[
                               const SizedBox(height: 12),
                               Semantics(
-                                label: 'Login error',
+                                label: s.signIn,
                                 child: Material(
                                   color: cs.errorContainer.withOpacity(0.9),
                                   borderRadius: BorderRadius.circular(12),
@@ -260,7 +275,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                             color: cs.onPrimary,
                                           ),
                                         )
-                                      : const Text('Sign in', key: ValueKey('t')),
+                                      : Text(s.signIn, key: const ValueKey('t')),
                                 ),
                               ),
                             ),
@@ -274,6 +289,35 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
             ),
           ),
         ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LoginLanguageMenu extends StatelessWidget {
+  const _LoginLanguageMenu({required this.s});
+
+  final AppStrings s;
+
+  @override
+  Widget build(BuildContext context) {
+    final code = Localizations.localeOf(context).languageCode.toLowerCase();
+    final current = code.startsWith('am') ? 'am' : 'en';
+    return DropdownButtonHideUnderline(
+      child: DropdownButton<String>(
+        value: current,
+        borderRadius: BorderRadius.circular(12),
+        items: [
+          DropdownMenuItem(value: 'en', child: Text(s.english)),
+          DropdownMenuItem(value: 'am', child: Text(s.amharic)),
+        ],
+        onChanged: (v) {
+          if (v == null) return;
+          AppLocaleScope.setLocaleOf(context, Locale(v));
+        },
       ),
     );
   }

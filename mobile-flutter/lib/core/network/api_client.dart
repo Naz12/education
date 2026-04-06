@@ -4,7 +4,16 @@ import 'dart:ui' as ui;
 import '../auth/session_store.dart';
 
 class ApiClient {
+  /// Synced with app language toggle (see [setAppLanguageCode]).
+  static String? _appLanguageCode;
+
+  static void setAppLanguageCode(String code) {
+    _appLanguageCode =
+        code.toLowerCase().startsWith('am') ? 'am' : 'en';
+  }
+
   static String _resolveLang() {
+    if (_appLanguageCode != null) return _appLanguageCode!;
     final code =
         ui.PlatformDispatcher.instance.locale.languageCode.toLowerCase();
     return code.startsWith('am') ? 'am' : 'en';

@@ -526,9 +526,13 @@ public class SchoolStuffController {
                 if (!hasLogin || !hasPassword) {
                     throw new IllegalArgumentException("username and password are required together for TEACHER login");
                 }
+                String loginUser = request.username().trim();
+                if (userRepository.existsByUsernameAndOrganizationId(loginUser, orgId)) {
+                    throw new IllegalArgumentException("Username already exists in this organization.");
+                }
                 User user = new User();
                 user.setOrganizationId(orgId);
-                user.setUsername(request.username());
+                user.setUsername(loginUser);
                 user.setPasswordHash(passwordEncoder.encode(request.password()));
                 user.setFullName(request.fullName());
                 user.setEmail(request.email());
@@ -570,9 +574,13 @@ public class SchoolStuffController {
                         .orElseThrow(() -> new IllegalArgumentException("School not found in coordinator scope"));
             }
 
+            String directorLogin = request.username().trim();
+            if (userRepository.existsByUsernameAndOrganizationId(directorLogin, orgId)) {
+                throw new IllegalArgumentException("Username already exists in this organization.");
+            }
             User director = new User();
             director.setOrganizationId(orgId);
-            director.setUsername(request.username());
+            director.setUsername(directorLogin);
             director.setPasswordHash(passwordEncoder.encode(request.password()));
             director.setFullName(request.fullName());
             director.setEmail(request.email());
@@ -608,9 +616,13 @@ public class SchoolStuffController {
             throw new IllegalArgumentException("username and password are required for role type " + roleName);
         }
 
+        String staffLogin = request.username().trim();
+        if (userRepository.existsByUsernameAndOrganizationId(staffLogin, orgId)) {
+            throw new IllegalArgumentException("Username already exists in this organization.");
+        }
         User user = new User();
         user.setOrganizationId(orgId);
-        user.setUsername(request.username());
+        user.setUsername(staffLogin);
         user.setPasswordHash(passwordEncoder.encode(request.password()));
         user.setFullName(request.fullName());
         user.setEmail(request.email());

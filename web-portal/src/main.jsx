@@ -214,8 +214,16 @@ function Input(props) {
   );
 }
 
-function Label({ children }) {
-  return <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: t.muted, marginBottom: 6 }}>{children}</label>;
+function Label({ children, htmlFor, style, ...rest }) {
+  return (
+    <label
+      htmlFor={htmlFor}
+      style={{ display: "block", fontSize: 12, fontWeight: 500, color: t.muted, marginBottom: 6, ...style }}
+      {...rest}
+    >
+      {children}
+    </label>
+  );
 }
 
 function Alert({ type, children }) {
@@ -5483,102 +5491,147 @@ function AssignmentsPage({ headers }) {
         wide
       >
         <form onSubmit={saveAssignment} style={{ display: "grid", gap: 12 }}>
-          <select
-            required
-            value={form.checklistId}
-            onChange={(e) => setForm((p) => ({ ...p, checklistId: e.target.value, checklistVersionId: "" }))}
-            style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}` }}
-          >
-            <option value="">{str.selectChecklist}</option>
-            {checklists.map((c) => (
-              <option key={c.id} value={c.id}>{c.title}{c.purpose ? ` · ${c.purpose}` : ""}</option>
-            ))}
-          </select>
-          <select
-            required
-            value={form.checklistVersionId}
-            onChange={(e) => setForm((p) => ({ ...p, checklistVersionId: e.target.value }))}
-            style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}` }}
-          >
-            <option value="">{str.selectVersion}</option>
-            {versions.map((v) => (
-              <option key={v.id} value={v.id}>v{v.versionNo} ({v.status})</option>
-            ))}
-          </select>
-          <select
-            required
-            value={form.supervisorId}
-            onChange={(e) => setForm((p) => ({ ...p, supervisorId: e.target.value }))}
-            style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}` }}
-          >
-            <option value="">{str.selectSupervisor}</option>
-            {supervisors.map((u) => (
-              <option key={u.id} value={u.id}>{u.fullName}</option>
-            ))}
-          </select>
-          <select
-            value={form.targetType}
-            onChange={(e) => {
-              const next = e.target.value;
-              setForm((p) => ({
-                ...p,
-                targetType: next,
-                schoolId: ASSIGNMENT_SCHOOL_TARGETS.has(next) ? p.schoolId : "",
-                teacherId: next === "TEACHER" ? p.teacherId : "",
-                staffUserId: next === "SCHOOL_STAFF" ? p.staffUserId : ""
-              }));
-            }}
-            style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}` }}
-          >
-            <option value="SCHOOL">{str.targetTypeSchool}</option>
-            <option value="TEACHER">{str.targetTypeTeacher}</option>
-            <option value="DIRECTOR">{str.targetTypeDirector}</option>
-            <option value="SCHOOL_STAFF">{str.targetTypeSchoolStaff}</option>
-          </select>
-          {ASSIGNMENT_SCHOOL_TARGETS.has(form.targetType) && (
+          <div>
+            <Label htmlFor="assignment-form-checklist">{str.assignmentFormChecklist}</Label>
             <select
+              id="assignment-form-checklist"
               required
-              value={form.schoolId}
-              onChange={(e) => setForm((p) => ({ ...p, schoolId: e.target.value }))}
-              style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}` }}
+              value={form.checklistId}
+              onChange={(e) => setForm((p) => ({ ...p, checklistId: e.target.value, checklistVersionId: "" }))}
+              aria-label={str.assignmentFormChecklist}
+              style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}`, width: "100%" }}
             >
-              <option value="">{str.selectSchool}</option>
-              {schools.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
+              <option value="">{str.selectChecklist}</option>
+              {checklists.map((c) => (
+                <option key={c.id} value={c.id}>{c.title}{c.purpose ? ` · ${c.purpose}` : ""}</option>
               ))}
             </select>
+          </div>
+          <div>
+            <Label htmlFor="assignment-form-version">{str.assignmentFormVersion}</Label>
+            <select
+              id="assignment-form-version"
+              required
+              value={form.checklistVersionId}
+              onChange={(e) => setForm((p) => ({ ...p, checklistVersionId: e.target.value }))}
+              aria-label={str.assignmentFormVersion}
+              style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}`, width: "100%" }}
+            >
+              <option value="">{str.selectVersion}</option>
+              {versions.map((v) => (
+                <option key={v.id} value={v.id}>v{v.versionNo} ({v.status})</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label htmlFor="assignment-form-supervisor">{str.assignmentFormSupervisor}</Label>
+            <select
+              id="assignment-form-supervisor"
+              required
+              value={form.supervisorId}
+              onChange={(e) => setForm((p) => ({ ...p, supervisorId: e.target.value }))}
+              aria-label={str.assignmentFormSupervisor}
+              style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}`, width: "100%" }}
+            >
+              <option value="">{str.selectSupervisor}</option>
+              {supervisors.map((u) => (
+                <option key={u.id} value={u.id}>{u.fullName}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label htmlFor="assignment-form-target-type">{str.assignmentFormTargetType}</Label>
+            <select
+              id="assignment-form-target-type"
+              value={form.targetType}
+              onChange={(e) => {
+                const next = e.target.value;
+                setForm((p) => ({
+                  ...p,
+                  targetType: next,
+                  schoolId: ASSIGNMENT_SCHOOL_TARGETS.has(next) ? p.schoolId : "",
+                  teacherId: next === "TEACHER" ? p.teacherId : "",
+                  staffUserId: next === "SCHOOL_STAFF" ? p.staffUserId : ""
+                }));
+              }}
+              aria-label={str.assignmentFormTargetType}
+              style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}`, width: "100%" }}
+            >
+              <option value="SCHOOL">{str.targetTypeSchool}</option>
+              <option value="TEACHER">{str.targetTypeTeacher}</option>
+              <option value="DIRECTOR">{str.targetTypeDirector}</option>
+              <option value="SCHOOL_STAFF">{str.targetTypeSchoolStaff}</option>
+            </select>
+          </div>
+          {ASSIGNMENT_SCHOOL_TARGETS.has(form.targetType) && (
+            <div>
+              <Label htmlFor="assignment-form-school">{str.assignmentFormSchool}</Label>
+              <select
+                id="assignment-form-school"
+                required
+                value={form.schoolId}
+                onChange={(e) => setForm((p) => ({ ...p, schoolId: e.target.value }))}
+                aria-label={str.assignmentFormSchool}
+                style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}`, width: "100%" }}
+              >
+                <option value="">{str.selectSchool}</option>
+                {schools.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
           )}
           {form.targetType === "TEACHER" && (
-            <select
-              required
-              value={form.teacherId}
-              onChange={(e) => setForm((p) => ({ ...p, teacherId: e.target.value }))}
-              style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}` }}
-            >
-              <option value="">{str.selectTeacher}</option>
-              {teachers.map((t) => (
-                <option key={t.id} value={t.id}>{t.name} · {t.subject}{t.schoolName ? ` · ${t.schoolName}` : ""}</option>
-              ))}
-            </select>
+            <div>
+              <Label htmlFor="assignment-form-teacher">{str.assignmentFormTeacher}</Label>
+              <select
+                id="assignment-form-teacher"
+                required
+                value={form.teacherId}
+                onChange={(e) => setForm((p) => ({ ...p, teacherId: e.target.value }))}
+                aria-label={str.assignmentFormTeacher}
+                style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}`, width: "100%" }}
+              >
+                <option value="">{str.selectTeacher}</option>
+                {teachers.map((teacher) => (
+                  <option key={teacher.id} value={teacher.id}>{teacher.name} · {teacher.subject}{teacher.schoolName ? ` · ${teacher.schoolName}` : ""}</option>
+                ))}
+              </select>
+            </div>
           )}
           {form.targetType === "SCHOOL_STAFF" && (
-            <select
-              required
-              value={form.staffUserId}
-              onChange={(e) => setForm((p) => ({ ...p, staffUserId: e.target.value }))}
-              style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}` }}
-            >
-              <option value="">{str.selectStaffMember}</option>
-              {schoolStuff
-                .filter((s) => s.type && s.type !== "TEACHER")
-                .map((s) => (
-                  <option key={`${s.type}-${s.id}`} value={s.id}>
-                    {s.fullName} ({s.type})
-                  </option>
-                ))}
-            </select>
+            <div>
+              <Label htmlFor="assignment-form-staff">{str.assignmentFormStaff}</Label>
+              <select
+                id="assignment-form-staff"
+                required
+                value={form.staffUserId}
+                onChange={(e) => setForm((p) => ({ ...p, staffUserId: e.target.value }))}
+                aria-label={str.assignmentFormStaff}
+                style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}`, width: "100%" }}
+              >
+                <option value="">{str.selectStaffMember}</option>
+                {schoolStuff
+                  .filter((s) => s.type && s.type !== "TEACHER")
+                  .map((s) => (
+                    <option key={`${s.type}-${s.id}`} value={s.id}>
+                      {s.fullName} ({s.type})
+                    </option>
+                  ))}
+              </select>
+            </div>
           )}
-          <Input type="datetime-local" value={form.dueDate} onChange={(e) => setForm((p) => ({ ...p, dueDate: e.target.value }))} />
+          <div>
+            <Label htmlFor="assignment-form-due">{str.assignmentFormDueDate}</Label>
+            <Input
+              id="assignment-form-due"
+              type="datetime-local"
+              value={form.dueDate}
+              onChange={(e) => setForm((p) => ({ ...p, dueDate: e.target.value }))}
+              aria-label={str.assignmentFormDueDate}
+              style={{ width: "100%" }}
+            />
+          </div>
           <PrimaryButton type="submit" disabled={editBusy}>
             {editBusy ? str.savingEllipsis : editingAssignmentId ? str.saveChanges : str.create}
           </PrimaryButton>

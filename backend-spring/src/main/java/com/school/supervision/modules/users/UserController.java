@@ -105,9 +105,14 @@ public class UserController {
     public UUID create(Authentication authentication, @RequestBody CreateUserRequest request) {
         User current = requireCurrentUser(authentication);
         requireAdminOrCoordinator(current);
+        UUID orgId = requireTenant();
+        String username = request.username().trim();
+        if (userRepository.existsByUsernameAndOrganizationId(username, orgId)) {
+            throw new IllegalArgumentException("Username already exists in this organization.");
+        }
         User user = new User();
-        user.setOrganizationId(requireTenant());
-        user.setUsername(request.username());
+        user.setOrganizationId(orgId);
+        user.setUsername(username);
         user.setPasswordHash(passwordEncoder.encode(request.password()));
         user.setFullName(request.fullName());
         user.setEmail(request.email());
@@ -206,11 +211,16 @@ public class UserController {
                                          @Valid @RequestBody CreateClusterCoordinatorRequest request) {
         User current = requireCurrentUser(authentication);
         requireSuperAdmin(current);
-        Role coordinatorRole = roleRepository.findByOrganizationIdAndName(requireTenant(), "CLUSTER_COORDINATOR")
+        UUID orgId = requireTenant();
+        String coordUsername = request.username().trim();
+        if (userRepository.existsByUsernameAndOrganizationId(coordUsername, orgId)) {
+            throw new IllegalArgumentException("Username already exists in this organization.");
+        }
+        Role coordinatorRole = roleRepository.findByOrganizationIdAndName(orgId, "CLUSTER_COORDINATOR")
                 .orElseThrow(() -> new IllegalArgumentException("Role CLUSTER_COORDINATOR not found"));
         User user = new User();
-        user.setOrganizationId(requireTenant());
-        user.setUsername(request.username());
+        user.setOrganizationId(orgId);
+        user.setUsername(coordUsername);
         user.setPasswordHash(passwordEncoder.encode(request.password()));
         user.setFullName(request.fullName());
         user.setEmail(request.email());
@@ -224,11 +234,16 @@ public class UserController {
     public UUID createSupervisor(Authentication authentication, @RequestBody CreateUserRequest request) {
         User current = requireCurrentUser(authentication);
         requireAdminOrCoordinator(current);
-        Role supervisorRole = roleRepository.findByOrganizationIdAndName(requireTenant(), "SUPERVISOR")
+        UUID orgId = requireTenant();
+        String supUsername = request.username().trim();
+        if (userRepository.existsByUsernameAndOrganizationId(supUsername, orgId)) {
+            throw new IllegalArgumentException("Username already exists in this organization.");
+        }
+        Role supervisorRole = roleRepository.findByOrganizationIdAndName(orgId, "SUPERVISOR")
                 .orElseThrow(() -> new IllegalArgumentException("Role SUPERVISOR not found"));
         User user = new User();
-        user.setOrganizationId(requireTenant());
-        user.setUsername(request.username());
+        user.setOrganizationId(orgId);
+        user.setUsername(supUsername);
         user.setPasswordHash(passwordEncoder.encode(request.password()));
         user.setFullName(request.fullName());
         user.setEmail(request.email());

@@ -10,9 +10,12 @@ import java.util.Set;
 import java.util.UUID;
 
 @Entity
-@Table(name = "users")
+@Table(
+        name = "users",
+        uniqueConstraints = @UniqueConstraint(name = "users_org_username", columnNames = {"organization_id", "username"})
+)
 public class User extends TenantScopedEntity {
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false)
     private String username;
     @Column(name = "password_hash", nullable = false)
     private String passwordHash;

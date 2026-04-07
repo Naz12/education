@@ -60,7 +60,7 @@ public class DefaultUserInitializer implements ApplicationRunner {
     }
 
     private void ensureUser(String username, String fullName, String email, String rawPassword, Role role) {
-        userRepository.findByUsername(username).orElseGet(() -> {
+        userRepository.findByUsernameAndOrganizationId(username, DEFAULT_ORG_ID).orElseGet(() -> {
             User user = new User();
             user.setOrganizationId(DEFAULT_ORG_ID);
             user.setUsername(username);

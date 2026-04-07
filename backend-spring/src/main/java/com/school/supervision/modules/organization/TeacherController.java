@@ -181,11 +181,15 @@ public class TeacherController {
                 .orElseThrow(() -> new IllegalArgumentException("Subject not found"));
         UUID userId = null;
         if (request.username() != null && !request.username().isBlank() && request.password() != null && !request.password().isBlank()) {
+            String loginUser = request.username().trim();
+            if (userRepository.existsByUsernameAndOrganizationId(loginUser, orgId)) {
+                throw new IllegalArgumentException("Username already exists in this organization.");
+            }
             Role teacherRole = roleRepository.findByOrganizationIdAndName(orgId, "TEACHER")
                     .orElseThrow(() -> new IllegalArgumentException("Role TEACHER not found"));
             User user = new User();
             user.setOrganizationId(orgId);
-            user.setUsername(request.username());
+            user.setUsername(loginUser);
             user.setPasswordHash(passwordEncoder.encode(request.password()));
             user.setFullName(request.name());
             user.setEmail(request.email());

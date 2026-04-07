@@ -12,8 +12,10 @@ import java.util.Collection;
 
 @Repository
 public interface UserRepository extends TenantAwareRepository<User, UUID> {
-    Optional<User> findByUsername(String username);
+    List<User> findAllByUsername(String username);
     Optional<User> findByUsernameAndOrganizationId(String username, UUID organizationId);
+
+    boolean existsByUsernameAndOrganizationId(String username, UUID organizationId);
     List<User> findAllByOrganizationIdAndCoordinatorUserId(UUID organizationId, UUID coordinatorUserId);
     List<User> findAllByOrganizationIdAndIdIn(UUID organizationId, Collection<UUID> ids);
 

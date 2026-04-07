@@ -146,6 +146,10 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
     return 'SCHOOL';
   }
 
+  /// Matches backend: auto-assign on publish for SCHOOL, DIRECTOR, and TEACHER routing.
+  static bool _supportsAutoAssignRouting(String? rk) =>
+      rk == 'SCHOOL' || rk == 'DIRECTOR' || rk == 'TEACHER';
+
   Future<void> _createChecklist() async {
     if (_newGradeGroupId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select a grade group')));
@@ -159,7 +163,7 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
     }
     try {
       final rk = _routingForTargetId(_newTargetOptionId);
-      final auto = (rk == 'SCHOOL' || rk == 'DIRECTOR') && _newAutoAssignOnPublish;
+      final auto = _supportsAutoAssignRouting(rk) && _newAutoAssignOnPublish;
       await ApiClient.createChecklist(
         title: _newTitle.text.trim(),
         targetOptionId: _newTargetOptionId,
@@ -241,9 +245,9 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Auto-assign on publish'),
-                    subtitle: const Text('School or director routing'),
-                    value: (rk == 'SCHOOL' || rk == 'DIRECTOR') && autoAssign,
-                    onChanged: (rk == 'SCHOOL' || rk == 'DIRECTOR')
+                    subtitle: const Text('School, director, or teacher classroom routing'),
+                    value: _supportsAutoAssignRouting(rk) && autoAssign,
+                    onChanged: _supportsAutoAssignRouting(rk)
                         ? (v) => setD(() => autoAssign = v)
                         : null,
                   ),
@@ -262,7 +266,7 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
                       targetOptionId: targetOpt,
                       purposeOptionId: purposeOpt,
                       gradeGroupId: gg,
-                      autoAssignOnPublish: (rk2 == 'SCHOOL' || rk2 == 'DIRECTOR') ? autoAssign : false,
+                      autoAssignOnPublish: _supportsAutoAssignRouting(rk2) ? autoAssign : false,
                     );
                     if (ctx.mounted) Navigator.pop(ctx);
                     await _load();
@@ -441,14 +445,14 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
                                           SwitchListTile(
                                             contentPadding: EdgeInsets.zero,
                                             title: const Text('Auto-assign when published'),
-                                            subtitle: const Text('School or director routing'),
+                                            subtitle: const Text('School, director, or teacher classroom routing'),
                                             value: (() {
                                               final rk = _routingForTargetId(_newTargetOptionId);
-                                              return (rk == 'SCHOOL' || rk == 'DIRECTOR') && _newAutoAssignOnPublish;
+                                              return _supportsAutoAssignRouting(rk) && _newAutoAssignOnPublish;
                                             })(),
                                             onChanged: (() {
                                               final rk = _routingForTargetId(_newTargetOptionId);
-                                              return (rk == 'SCHOOL' || rk == 'DIRECTOR')
+                                              return _supportsAutoAssignRouting(rk)
                                                   ? (v) => setState(() => _newAutoAssignOnPublish = v)
                                                   : null;
                                             })(),
@@ -475,7 +479,7 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
                                     final disabled = m['activeVersion'] == null;
                                     final target = m['targetType']?.toString() ?? '';
                                     final targetLabel = m['targetName']?.toString() ?? target;
-                                    final autoLine = (target == 'SCHOOL' || target == 'DIRECTOR')
+                                    final autoLine = _supportsAutoAssignRouting(target)
                                         ? (m['autoAssignOnPublish'] != false ? 'Auto-assign: on' : 'Auto-assign: off')
                                         : 'Auto-assign: —';
                                     final gradesLine = _checklistGradesSummary(m);

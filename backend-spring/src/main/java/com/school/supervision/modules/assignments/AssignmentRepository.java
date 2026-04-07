@@ -25,4 +25,11 @@ public interface AssignmentRepository extends TenantAwareRepository<Assignment, 
             UUID checklistId,
             UUID schoolId,
             Collection<AssignmentStatus> statuses);
+
+    boolean existsByOrganizationIdAndChecklistIdAndSchoolIdAndTeacherIdAndStatusIn(
+            UUID organizationId,
+            UUID checklistId,
+            UUID schoolId,
+            UUID teacherId,
+            Collection<AssignmentStatus> statuses);
 }

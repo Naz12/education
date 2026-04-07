@@ -9,6 +9,8 @@ import com.school.supervision.modules.checklists.GradeGroup;
 import com.school.supervision.modules.checklists.GradeGroupRepository;
 import com.school.supervision.modules.organization.School;
 import com.school.supervision.modules.organization.SchoolRepository;
+import com.school.supervision.modules.organization.Teacher;
+import com.school.supervision.modules.organization.TeacherRepository;
 import com.school.supervision.modules.reports.AuditService;
 import com.school.supervision.modules.users.User;
 import com.school.supervision.modules.users.UserRepository;
@@ -26,6 +28,7 @@ public class AssignmentAutoAssignmentService {
     private static final EnumSet<AssignmentStatus> OPEN = EnumSet.of(AssignmentStatus.PENDING, AssignmentStatus.IN_PROGRESS);
 
     private final SchoolRepository schoolRepository;
+    private final TeacherRepository teacherRepository;
     private final AssignmentRepository assignmentRepository;
     private final UserRepository userRepository;
     private final GradeGroupRepository gradeGroupRepository;
@@ -33,12 +36,14 @@ public class AssignmentAutoAssignmentService {
     private final ObjectMapper objectMapper;
 
     public AssignmentAutoAssignmentService(SchoolRepository schoolRepository,
+                                           TeacherRepository teacherRepository,
                                            AssignmentRepository assignmentRepository,
                                            UserRepository userRepository,
                                            GradeGroupRepository gradeGroupRepository,
                                            AuditService auditService,
                                            ObjectMapper objectMapper) {
         this.schoolRepository = schoolRepository;
+        this.teacherRepository = teacherRepository;
         this.assignmentRepository = assignmentRepository;
         this.userRepository = userRepository;
         this.gradeGroupRepository = gradeGroupRepository;
@@ -54,7 +59,10 @@ public class AssignmentAutoAssignmentService {
         if (!checklist.isAutoAssignOnPublish()) {
             return 0;
         }
-        if (checklist.getTargetType() != TargetType.SCHOOL && checklist.getTargetType() != TargetType.DIRECTOR) {
+        TargetType targetType = checklist.getTargetType();
+        if (targetType == null
+                || targetType == TargetType.SCHOOL_STAFF) {
+            // SCHOOL_STAFF has no stable roster per school in this schema; assign manually.
             return 0;
         }
         if (checklist.getGradeGroupId() == null) {
@@ -70,12 +78,28 @@ public class AssignmentAutoAssignmentService {
             return 0;
         }
 
-        List<School> schools = listSchoolsInScope(organizationId, checklist.getCoordinatorUserId());
         List<User> supervisors = listSupervisors(organizationId, checklist.getCoordinatorUserId());
         if (supervisors.isEmpty()) {
             return 0;
         }
 
+        if (targetType == TargetType.TEACHER) {
+            return assignTeacherTargets(organizationId, checklist, publishedVersionId, actorUserId, checklistGrades, supervisors);
+        }
+        if (targetType == TargetType.SCHOOL || targetType == TargetType.DIRECTOR) {
+            return assignSchoolOrDirectorTargets(organizationId, checklist, publishedVersionId, actorUserId, checklistGrades, supervisors);
+        }
+        return 0;
+    }
+
+    /** One assignment per school (school-level or director visit at that school). */
+    private int assignSchoolOrDirectorTargets(UUID organizationId,
+                                              Checklist checklist,
+                                              UUID publishedVersionId,
+                                              UUID actorUserId,
+                                              Set<String> checklistGrades,
+                                              List<User> supervisors) {
+        List<School> schools = listSchoolsInScope(organizationId, checklist.getCoordinatorUserId());
         int created = 0;
         for (School school : schools) {
             Set<String> schoolGrades = GradeCodes.normalize(GradeCodes.parseJsonArray(objectMapper, school.getSupportedGradeCodesJson()));
@@ -119,6 +143,74 @@ public class AssignmentAutoAssignmentService {
                             "supervisorId", supervisor.getId().toString()
                     )
             );
+        }
+        return created;
+    }
+
+    /** One assignment per teacher when the checklist targets classroom visits. */
+    private int assignTeacherTargets(UUID organizationId,
+                                     Checklist checklist,
+                                     UUID publishedVersionId,
+                                     UUID actorUserId,
+                                     Set<String> checklistGrades,
+                                     List<User> supervisors) {
+        List<School> schools = listSchoolsInScope(organizationId, checklist.getCoordinatorUserId());
+        int created = 0;
+        for (School school : schools) {
+            Set<String> schoolGrades = GradeCodes.normalize(GradeCodes.parseJsonArray(objectMapper, school.getSupportedGradeCodesJson()));
+            if (schoolGrades.isEmpty()) {
+                continue;
+            }
+            if (!GradeCodes.overlaps(checklistGrades, schoolGrades)) {
+                continue;
+            }
+            Set<String> visitScope = AssignmentGradeScope.resolve(objectMapper, school, checklist, gradeGroupRepository);
+            if (visitScope.isEmpty()) {
+                continue;
+            }
+            List<Teacher> teachers = teacherRepository.findAllByOrganizationIdAndSchoolId(organizationId, school.getId());
+            for (Teacher teacher : teachers) {
+                Set<String> teacherGrades = GradeCodes.normalize(
+                        GradeCodes.parseJsonArray(objectMapper, teacher.getResponsibleGradeCodesJson()));
+                if (!teacherGrades.isEmpty() && !GradeCodes.overlaps(visitScope, teacherGrades)) {
+                    continue;
+                }
+                if (assignmentRepository.existsByOrganizationIdAndChecklistIdAndSchoolIdAndTeacherIdAndStatusIn(
+                        organizationId, checklist.getId(), school.getId(), teacher.getId(), OPEN)) {
+                    continue;
+                }
+                User supervisor = pickSupervisor(supervisors, school, checklist, organizationId);
+                if (supervisor == null) {
+                    continue;
+                }
+                Assignment a = new Assignment();
+                a.setOrganizationId(organizationId);
+                a.setChecklistId(checklist.getId());
+                a.setChecklistVersionId(publishedVersionId);
+                a.setSupervisorId(supervisor.getId());
+                a.setTargetType(TargetType.TEACHER);
+                a.setSchoolId(school.getId());
+                a.setTeacherId(teacher.getId());
+                a.setStaffUserId(null);
+                a.setDueDate(null);
+                a.setStatus(AssignmentStatus.PENDING);
+                a.setCreatedBy(actorUserId);
+                assignmentRepository.save(a);
+                created++;
+                auditService.record(
+                        organizationId,
+                        actorUserId,
+                        "ASSIGNMENT_AUTO_CREATED",
+                        "ASSIGNMENT",
+                        a.getId(),
+                        java.util.Map.of(
+                                "checklistId", checklist.getId().toString(),
+                                "schoolId", school.getId().toString(),
+                                "teacherId", teacher.getId().toString(),
+                                "supervisorId", supervisor.getId().toString()
+                        )
+                );
+            }
         }
         return created;
     }

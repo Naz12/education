@@ -11,7 +11,7 @@ const API_BASE =
 const CANONICAL_GRADE_CODES = ["KG1", "KG2", "KG3", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
 
 /** Checklist targets that support auto-assign on publish (per matching school). */
-const CHECKLIST_AUTO_ASSIGN_TARGETS = new Set(["SCHOOL", "DIRECTOR"]);
+const CHECKLIST_AUTO_ASSIGN_TARGETS = new Set(["SCHOOL", "DIRECTOR", "TEACHER"]);
 
 /** Assignment targets that require a school for geo and routing. */
 const ASSIGNMENT_SCHOOL_TARGETS = new Set(["SCHOOL", "DIRECTOR", "SCHOOL_STAFF"]);
@@ -1385,7 +1385,24 @@ function UsersPage({ headers, isSuperAdmin }) {
         action={
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {isSuperAdmin && <PrimaryButton onClick={() => setCoordOpen(true)}>{str.addCoordinator}</PrimaryButton>}
-            <PrimaryButton onClick={() => setSupOpen(true)}>{str.addSupervisor}</PrimaryButton>
+            <PrimaryButton
+              onClick={() => {
+                setSupervisorForm({
+                  fullName: "",
+                  username: "",
+                  password: "",
+                  email: "",
+                  phone: "",
+                  cityId: "",
+                  subcityId: "",
+                  weredaId: "",
+                  supervisedGradeCodes: [...CANONICAL_GRADE_CODES]
+                });
+                setSupOpen(true);
+              }}
+            >
+              {str.addSupervisor}
+            </PrimaryButton>
           </div>
         }
       />

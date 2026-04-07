@@ -23,6 +23,7 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/checklists")
 public class ChecklistController {
     private final ChecklistService checklistService;
+    private final ChecklistOptionService checklistOptionService;
     private final ChecklistRepository checklistRepository;
     private final ChecklistVersionRepository checklistVersionRepository;
     private final GradeGroupRepository gradeGroupRepository;
@@ -31,6 +32,7 @@ public class ChecklistController {
     private final ObjectMapper objectMapper;
 
     public ChecklistController(ChecklistService checklistService,
+                               ChecklistOptionService checklistOptionService,
                                ChecklistRepository checklistRepository,
                                ChecklistVersionRepository checklistVersionRepository,
                                GradeGroupRepository gradeGroupRepository,
@@ -38,6 +40,7 @@ public class ChecklistController {
                                AuditService auditService,
                                ObjectMapper objectMapper) {
         this.checklistService = checklistService;
+        this.checklistOptionService = checklistOptionService;
         this.checklistRepository = checklistRepository;
         this.checklistVersionRepository = checklistVersionRepository;
         this.gradeGroupRepository = gradeGroupRepository;
@@ -105,6 +108,121 @@ public class ChecklistController {
                             ggc);
                 })
                 .toList();
+    }
+
+    /**
+     * Target/purpose option CRUD. Paths use literal {@code /options/...} so they are not mistaken for {@code /{checklistId}/...}.
+     */
+    @GetMapping("/options/targets")
+    public List<ChecklistDtos.TargetOptionResponse> listTargetOptions(Authentication authentication) {
+        User user = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(user);
+        return checklistOptionService.listTargets();
+    }
+
+    @PostMapping("/options/targets")
+    public UUID createTargetOption(Authentication authentication,
+                                   @Valid @RequestBody ChecklistDtos.CreateTargetOptionRequest request) {
+        User user = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(user);
+        UUID id = checklistOptionService.createTarget(request);
+        auditService.record(
+                requireTenant(),
+                user.getId(),
+                "CHECKLIST_TARGET_OPTION_CREATED",
+                "CHECKLIST_TARGET_OPTION",
+                id,
+                Map.of("name", request.name().trim(), "routingKind", request.routingKind().name())
+        );
+        return id;
+    }
+
+    @PatchMapping("/options/targets/{id}")
+    public void updateTargetOption(Authentication authentication,
+                                   @PathVariable UUID id,
+                                   @Valid @RequestBody ChecklistDtos.UpdateTargetOptionRequest request) {
+        User user = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(user);
+        checklistOptionService.updateTarget(id, request);
+        auditService.record(
+                requireTenant(),
+                user.getId(),
+                "CHECKLIST_TARGET_OPTION_UPDATED",
+                "CHECKLIST_TARGET_OPTION",
+                id,
+                Map.of("name", request.name().trim(), "routingKind", request.routingKind().name())
+        );
+    }
+
+    @DeleteMapping("/options/targets/{id}")
+    public void deleteTargetOption(Authentication authentication, @PathVariable UUID id) {
+        User user = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(user);
+        checklistOptionService.deleteTarget(id);
+        auditService.record(
+                requireTenant(),
+                user.getId(),
+                "CHECKLIST_TARGET_OPTION_DELETED",
+                "CHECKLIST_TARGET_OPTION",
+                id,
+                Map.of()
+        );
+    }
+
+    @GetMapping("/options/purposes")
+    public List<ChecklistDtos.PurposeOptionResponse> listPurposeOptions(Authentication authentication) {
+        User user = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(user);
+        return checklistOptionService.listPurposes();
+    }
+
+    @PostMapping("/options/purposes")
+    public UUID createPurposeOption(Authentication authentication,
+                                    @Valid @RequestBody ChecklistDtos.CreatePurposeOptionRequest request) {
+        User user = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(user);
+        UUID id = checklistOptionService.createPurpose(request);
+        auditService.record(
+                requireTenant(),
+                user.getId(),
+                "CHECKLIST_PURPOSE_OPTION_CREATED",
+                "CHECKLIST_PURPOSE_OPTION",
+                id,
+                Map.of("name", request.name().trim())
+        );
+        return id;
+    }
+
+    @PatchMapping("/options/purposes/{id}")
+    public void updatePurposeOption(Authentication authentication,
+                                    @PathVariable UUID id,
+                                    @Valid @RequestBody ChecklistDtos.UpdatePurposeOptionRequest request) {
+        User user = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(user);
+        checklistOptionService.updatePurpose(id, request);
+        auditService.record(
+                requireTenant(),
+                user.getId(),
+                "CHECKLIST_PURPOSE_OPTION_UPDATED",
+                "CHECKLIST_PURPOSE_OPTION",
+                id,
+                Map.of("name", request.name().trim())
+        );
+    }
+
+    @DeleteMapping("/options/purposes/{id}")
+    public void deletePurposeOption(Authentication authentication, @PathVariable UUID id) {
+        User user = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(user);
+        checklistOptionService.deletePurpose(id);
+        auditService.record(
+                requireTenant(),
+                user.getId(),
+                "CHECKLIST_PURPOSE_OPTION_DELETED",
+                "CHECKLIST_PURPOSE_OPTION",
+                id,
+                Map.of()
+        );
     }
 
     @PostMapping

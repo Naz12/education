@@ -2944,11 +2944,30 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
   const loadGradeGroups = () => fetch(`${API_BASE}/grade-groups`, { headers }).then((r) => r.json()).then(setGradeGroups);
   const loadChecklistOptions = () =>
     Promise.all([
-      fetch(`${API_BASE}/checklists/options/targets`, { headers }).then((r) => r.json()),
-      fetch(`${API_BASE}/checklists/options/purposes`, { headers }).then((r) => r.json())
-    ]).then(([targets, purposes]) => {
+      fetch(`${API_BASE}/checklists/options/targets`, { headers }),
+      fetch(`${API_BASE}/checklists/options/purposes`, { headers })
+    ]).then(async ([rt, rp]) => {
+      const parseJson = async (res) => {
+        if (!res.ok) {
+          let msg = `${res.status} ${res.statusText}`;
+          try {
+            const body = await res.json();
+            if (body?.message) msg = body.message;
+          } catch (_) {}
+          throw new Error(msg);
+        }
+        const text = await res.text();
+        if (!text || !text.trim()) return [];
+        return JSON.parse(text);
+      };
+      const [targets, purposes] = await Promise.all([parseJson(rt), parseJson(rp)]);
       setTargetOptions(Array.isArray(targets) ? targets : []);
       setPurposeOptions(Array.isArray(purposes) ? purposes : []);
+    })
+    .catch((err) => {
+      setTargetOptions([]);
+      setPurposeOptions([]);
+      setMessage({ type: "error", text: err?.message || "Could not load targets and purposes." });
     });
   const loadTypeDefaults = () => {
     setTypeDefaultsLoading(true);

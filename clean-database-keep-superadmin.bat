@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
 rem ---------------------------------------------------------------------------
@@ -8,7 +8,8 @@ rem   - User "superadmin" (and their SUPER_ADMIN role link)
 rem   - Organizations, system roles, cities/subcities/weredas/clusters
 rem   - grade_groups rows and grade_codes (grades preserved)
 rem   - checklist_item_type_defaults
-rem Requires PostgreSQL client (psql) on PATH.
+rem Requires PostgreSQL client (psql). Uses PATH, or common Windows install paths.
+rem Set PSQL to the full path to psql.exe to override (e.g. set PSQL=C:\...\psql.exe).
 rem Connection defaults match backend-spring/src/main/resources/application.yml
 rem unless you override with environment variables below.
 rem ---------------------------------------------------------------------------
@@ -25,11 +26,52 @@ if not defined PGPASSWORD (
 
 set "SQLFILE=%~dp0scripts\postgres\clean_default_org_keep_superadmin.sql"
 
-where psql >nul 2>&1
-if errorlevel 1 (
-  echo ERROR: psql not found. Install PostgreSQL client tools and add them to PATH.
+set "PSQL_CMD="
+if defined PSQL (
+  if exist "!PSQL!" set "PSQL_CMD=!PSQL!"
+)
+if not defined PSQL_CMD (
+  where psql >nul 2>&1
+  if not errorlevel 1 set "PSQL_CMD=psql"
+)
+if not defined PSQL_CMD (
+  for /f "delims=" %%V in ('dir /b /ad /o-n "%ProgramFiles%\PostgreSQL" 2^>nul') do (
+    if exist "%ProgramFiles%\PostgreSQL\%%V\bin\psql.exe" (
+      set "PSQL_CMD=%ProgramFiles%\PostgreSQL\%%V\bin\psql.exe"
+      goto :found_psql
+    )
+  )
+)
+:found_psql
+if not defined PSQL_CMD (
+  if exist "%ProgramFiles(x86)%\PostgreSQL\16\bin\psql.exe" set "PSQL_CMD=%ProgramFiles(x86)%\PostgreSQL\16\bin\psql.exe"
+)
+if not defined PSQL_CMD (
+  if exist "%ProgramFiles%\PostgreSQL\18\bin\psql.exe" set "PSQL_CMD=%ProgramFiles%\PostgreSQL\18\bin\psql.exe"
+)
+if not defined PSQL_CMD (
+  if exist "%ProgramFiles%\PostgreSQL\17\bin\psql.exe" set "PSQL_CMD=%ProgramFiles%\PostgreSQL\17\bin\psql.exe"
+)
+if not defined PSQL_CMD (
+  if exist "%ProgramFiles%\PostgreSQL\16\bin\psql.exe" set "PSQL_CMD=%ProgramFiles%\PostgreSQL\16\bin\psql.exe"
+)
+if not defined PSQL_CMD (
+  if exist "%ProgramFiles%\PostgreSQL\15\bin\psql.exe" set "PSQL_CMD=%ProgramFiles%\PostgreSQL\15\bin\psql.exe"
+)
+if not defined PSQL_CMD (
+  if exist "%ProgramFiles%\PostgreSQL\14\bin\psql.exe" set "PSQL_CMD=%ProgramFiles%\PostgreSQL\14\bin\psql.exe"
+)
+
+if not defined PSQL_CMD (
+  echo ERROR: psql.exe not found.
+  echo.
+  echo Install PostgreSQL from https://www.postgresql.org/download/windows/ ^(includes psql in bin^),
+  echo or add the PostgreSQL "bin" folder to your PATH, or set PSQL to the full path to psql.exe, e.g.:
+  echo   set PSQL=C:\Program Files\PostgreSQL\16\bin\psql.exe
+  echo.
   exit /b 1
 )
+echo Using psql: !PSQL_CMD!
 
 if not exist "%SQLFILE%" (
   echo ERROR: Missing SQL script: "%SQLFILE%"
@@ -43,7 +85,7 @@ echo Database: %DB_USER%@%DB_HOST%:%DB_PORT%/%DB_NAME%
 echo.
 pause
 
-psql -h "%DB_HOST%" -p "%DB_PORT%" -U "%DB_USER%" -d "%DB_NAME%" -v ON_ERROR_STOP=1 -f "%SQLFILE%"
+"!PSQL_CMD!" -h "%DB_HOST%" -p "%DB_PORT%" -U "%DB_USER%" -d "%DB_NAME%" -v ON_ERROR_STOP=1 -f "%SQLFILE%"
 set "ERR=%ERRORLEVEL%"
 if not "%ERR%"=="0" (
   echo.

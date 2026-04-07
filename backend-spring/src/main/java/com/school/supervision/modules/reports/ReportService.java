@@ -20,10 +20,16 @@ import com.school.supervision.modules.reviews.SignatureRepository;
 import com.school.supervision.modules.users.User;
 import com.school.supervision.modules.users.UserRepository;
 import com.school.supervision.modules.users.UserRoleChecks;
+import com.lowagie.text.Document;
+import com.lowagie.text.DocumentException;
+import com.lowagie.text.Font;
+import com.lowagie.text.FontFactory;
+import com.lowagie.text.Paragraph;
+import com.lowagie.text.pdf.PdfWriter;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
+import java.io.ByteArrayOutputStream;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -160,7 +166,28 @@ public class ReportService {
             content.append("- Item ").append(answer.getChecklistItemId()).append(": ")
                     .append(answer.getAnswerJson()).append("\n");
         }
-        return content.toString().getBytes(StandardCharsets.UTF_8);
+        return buildPdfBytes(content.toString());
+    }
+
+    private static byte[] buildPdfBytes(String text) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        Document document = new Document();
+        try {
+            PdfWriter.getInstance(document, out);
+            document.open();
+            Font titleFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14);
+            Font bodyFont = FontFactory.getFont(FontFactory.HELVETICA, 10);
+            document.add(new Paragraph("School Supervision Review Report", titleFont));
+            document.add(new Paragraph(" "));
+            for (String block : text.split("\n")) {
+                document.add(new Paragraph(block.isEmpty() ? " " : block, bodyFont));
+            }
+        } catch (DocumentException e) {
+            throw new IllegalStateException("Could not build PDF", e);
+        } finally {
+            document.close();
+        }
+        return out.toByteArray();
     }
 
     private void assertCanReadReview(User current, Review review, UUID orgId) {

@@ -1,6 +1,7 @@
 package com.school.supervision.common.exception;
 
 import jakarta.validation.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -32,6 +33,16 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException ex) {
         return ResponseEntity.badRequest().body(Map.of("error", "VALIDATION_ERROR", "message", ex.getMessage()));
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<Map<String, Object>> handleDataIntegrity(DataIntegrityViolationException ex) {
+        String raw = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
+        String message = raw != null ? raw : "Data conflict";
+        if (message.contains("users_username_key") || message.contains("users_org_username")) {
+            message = "This username is already taken. Choose another, or ensure the database migration for per-organization usernames has been applied (restart the backend after deploy).";
+        }
+        return ResponseEntity.badRequest().body(Map.of("error", "CONFLICT", "message", message));
     }
 
     @ExceptionHandler(AccessDeniedException.class)

@@ -19,6 +19,8 @@ public class ChecklistService {
     private final ChecklistVersionRepository versionRepository;
     private final ChecklistItemRepository itemRepository;
     private final GradeGroupRepository gradeGroupRepository;
+    private final ChecklistTargetOptionRepository targetOptionRepository;
+    private final ChecklistPurposeOptionRepository purposeOptionRepository;
     private final AssignmentRepository assignmentRepository;
     private final AssignmentAutoAssignmentService assignmentAutoAssignmentService;
     private final ReviewAnswerRepository reviewAnswerRepository;
@@ -28,6 +30,8 @@ public class ChecklistService {
                             ChecklistVersionRepository versionRepository,
                             ChecklistItemRepository itemRepository,
                             GradeGroupRepository gradeGroupRepository,
+                            ChecklistTargetOptionRepository targetOptionRepository,
+                            ChecklistPurposeOptionRepository purposeOptionRepository,
                             AssignmentRepository assignmentRepository,
                             AssignmentAutoAssignmentService assignmentAutoAssignmentService,
                             ReviewAnswerRepository reviewAnswerRepository,
@@ -36,6 +40,8 @@ public class ChecklistService {
         this.versionRepository = versionRepository;
         this.itemRepository = itemRepository;
         this.gradeGroupRepository = gradeGroupRepository;
+        this.targetOptionRepository = targetOptionRepository;
+        this.purposeOptionRepository = purposeOptionRepository;
         this.assignmentRepository = assignmentRepository;
         this.assignmentAutoAssignmentService = assignmentAutoAssignmentService;
         this.reviewAnswerRepository = reviewAnswerRepository;
@@ -128,9 +134,15 @@ public class ChecklistService {
                 .orElseThrow(() -> new IllegalArgumentException("Grade group not found"));
         assertGradeGroupInCoordinatorScope(gradeGroup, coordinatorUserId);
 
+        ChecklistTargetOption targetOpt = targetOptionRepository
+                .findByIdAndOrganizationId(request.targetOptionId(), orgId)
+                .orElseThrow(() -> new IllegalArgumentException("Target option not found"));
+        ChecklistPurposeOption purposeOpt = purposeOptionRepository
+                .findByIdAndOrganizationId(request.purposeOptionId(), orgId)
+                .orElseThrow(() -> new IllegalArgumentException("Purpose option not found"));
         checklist.setTitle(request.title());
-        checklist.setTargetType(request.targetType());
-        checklist.setPurpose(request.purpose());
+        checklist.setTargetOption(targetOpt);
+        checklist.setPurposeOption(purposeOpt);
         checklist.setGradeGroupId(gradeGroup.getId());
         checklist.setGradeScope(gradeGroup.getGradesDescription());
         checklist.setCoordinatorUserId(coordinatorUserId);
@@ -352,10 +364,16 @@ public class ChecklistService {
         GradeGroup gradeGroup = gradeGroupRepository.findByIdAndOrganizationId(request.gradeGroupId(), requireTenant())
                 .orElseThrow(() -> new IllegalArgumentException("Grade group not found"));
         assertGradeGroupInCoordinatorScope(gradeGroup, coordinatorUserId);
+        ChecklistTargetOption targetOpt = targetOptionRepository
+                .findByIdAndOrganizationId(request.targetOptionId(), requireTenant())
+                .orElseThrow(() -> new IllegalArgumentException("Target option not found"));
+        ChecklistPurposeOption purposeOpt = purposeOptionRepository
+                .findByIdAndOrganizationId(request.purposeOptionId(), requireTenant())
+                .orElseThrow(() -> new IllegalArgumentException("Purpose option not found"));
         checklist.setTitle(request.title());
-        checklist.setTargetType(request.targetType());
+        checklist.setTargetOption(targetOpt);
         checklist.setDisplayMode(mode);
-        checklist.setPurpose(request.purpose());
+        checklist.setPurposeOption(purposeOpt);
         checklist.setGradeGroupId(gradeGroup.getId());
         checklist.setGradeScope(gradeGroup.getGradesDescription());
         checklist.setCoordinatorUserId(coordinatorUserId);

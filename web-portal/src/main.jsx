@@ -2875,8 +2875,10 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
   const [ggCodesLocked, setGgCodesLocked] = useState(false);
   const [ggLegacyHint, setGgLegacyHint] = useState("");
   const [title, setTitle] = useState("");
-  const [targetType, setTargetType] = useState("SCHOOL");
-  const [purpose, setPurpose] = useState("CLINICAL_SUPERVISION");
+  const [targetOptions, setTargetOptions] = useState([]);
+  const [purposeOptions, setPurposeOptions] = useState([]);
+  const [targetOptionId, setTargetOptionId] = useState("");
+  const [purposeOptionId, setPurposeOptionId] = useState("");
   const [gradeGroupId, setGradeGroupId] = useState("");
   const [autoAssignOnPublish, setAutoAssignOnPublish] = useState(true);
   const [skipAutoOnPublish, setSkipAutoOnPublish] = useState(false);
@@ -2919,11 +2921,17 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
   const [editForm, setEditForm] = useState({
     id: "",
     title: "",
+    targetOptionId: "",
+    purposeOptionId: "",
     targetType: "SCHOOL",
-    purpose: "CLINICAL_SUPERVISION",
     gradeGroupId: "",
     autoAssignOnPublish: true
   });
+  const [targetOptionFormOpen, setTargetOptionFormOpen] = useState(false);
+  const [targetOptionForm, setTargetOptionForm] = useState({ id: null, name: "", routingKind: "SCHOOL" });
+  const [purposeOptionFormOpen, setPurposeOptionFormOpen] = useState(false);
+  const [purposeOptionForm, setPurposeOptionForm] = useState({ id: null, name: "" });
+  const [optionsSaving, setOptionsSaving] = useState(false);
 
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -2934,6 +2942,14 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
 
   const loadChecklists = () => fetch(`${API_BASE}/checklists`, { headers }).then((r) => r.json()).then(setItems);
   const loadGradeGroups = () => fetch(`${API_BASE}/grade-groups`, { headers }).then((r) => r.json()).then(setGradeGroups);
+  const loadChecklistOptions = () =>
+    Promise.all([
+      fetch(`${API_BASE}/checklists/options/targets`, { headers }).then((r) => r.json()),
+      fetch(`${API_BASE}/checklists/options/purposes`, { headers }).then((r) => r.json())
+    ]).then(([targets, purposes]) => {
+      setTargetOptions(Array.isArray(targets) ? targets : []);
+      setPurposeOptions(Array.isArray(purposes) ? purposes : []);
+    });
   const loadTypeDefaults = () => {
     setTypeDefaultsLoading(true);
     return fetch(`${API_BASE}/checklists/type-defaults`, { headers })
@@ -2953,7 +2969,20 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
     loadChecklists();
     loadGradeGroups();
     loadTypeDefaults();
+    loadChecklistOptions();
   }, [headers]);
+
+  useEffect(() => {
+    if (targetOptions.length && !targetOptionId) {
+      setTargetOptionId(targetOptions[0].id);
+    }
+  }, [targetOptions, targetOptionId]);
+
+  useEffect(() => {
+    if (purposeOptions.length && !purposeOptionId) {
+      setPurposeOptionId(purposeOptions[0].id);
+    }
+  }, [purposeOptions, purposeOptionId]);
 
   useEffect(() => {
     if (items.length === 0) {
@@ -3132,8 +3161,9 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
     setEditForm({
       id: c.id,
       title: c.title ?? "",
+      targetOptionId: c.targetOptionId ?? "",
+      purposeOptionId: c.purposeOptionId ?? "",
       targetType: c.targetType ?? "SCHOOL",
-      purpose: c.purpose ?? "CLINICAL_SUPERVISION",
       gradeGroupId: c.gradeGroupId ?? "",
       autoAssignOnPublish: c.autoAssignOnPublish !== false
     });
@@ -3150,8 +3180,8 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
         headers: jsonHeaders(headers),
         body: JSON.stringify({
           title: editForm.title,
-          targetType: editForm.targetType,
-          purpose: editForm.purpose,
+          targetOptionId: editForm.targetOptionId,
+          purposeOptionId: editForm.purposeOptionId,
           gradeGroupId: editForm.gradeGroupId,
           autoAssignOnPublish: Boolean(editForm.autoAssignOnPublish)
         })
@@ -3225,21 +3255,139 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
     }
   };
 
+  const saveTargetOptionForm = async (e) => {
+    e.preventDefault();
+    const name = targetOptionForm.name.trim();
+    if (!name) {
+      setMessage({ type: "error", text: "Enter a target name." });
+      return;
+    }
+    setOptionsSaving(true);
+    try {
+      const body = { name, routingKind: targetOptionForm.routingKind };
+      const url = targetOptionForm.id
+        ? `${API_BASE}/checklists/options/targets/${targetOptionForm.id}`
+        : `${API_BASE}/checklists/options/targets`;
+      const res = await fetch(url, {
+        method: targetOptionForm.id ? "PATCH" : "POST",
+        headers: jsonHeaders(headers),
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) {
+        let details = null;
+        try {
+          details = await res.json();
+        } catch (_) {}
+        throw new Error(details?.message ? details.message : "Save failed.");
+      }
+      setTargetOptionFormOpen(false);
+      setMessage({ type: "ok", text: "Target saved." });
+      await loadChecklistOptions();
+      await loadChecklists();
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      setOptionsSaving(false);
+    }
+  };
+
+  const deleteTargetOption = async (id) => {
+    if (!window.confirm("Delete this target? It must not be used by any checklist.")) return;
+    try {
+      const res = await fetch(`${API_BASE}/checklists/options/targets/${id}`, { method: "DELETE", headers });
+      if (!res.ok) {
+        let details = null;
+        try {
+          details = await res.json();
+        } catch (_) {}
+        throw new Error(details?.message ? details.message : "Delete failed.");
+      }
+      setMessage({ type: "ok", text: "Target deleted." });
+      await loadChecklistOptions();
+      await loadChecklists();
+      if (targetOptionId === id) setTargetOptionId("");
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    }
+  };
+
+  const savePurposeOptionForm = async (e) => {
+    e.preventDefault();
+    const name = purposeOptionForm.name.trim();
+    if (!name) {
+      setMessage({ type: "error", text: "Enter a purpose name." });
+      return;
+    }
+    setOptionsSaving(true);
+    try {
+      const body = { name };
+      const url = purposeOptionForm.id
+        ? `${API_BASE}/checklists/options/purposes/${purposeOptionForm.id}`
+        : `${API_BASE}/checklists/options/purposes`;
+      const res = await fetch(url, {
+        method: purposeOptionForm.id ? "PATCH" : "POST",
+        headers: jsonHeaders(headers),
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) {
+        let details = null;
+        try {
+          details = await res.json();
+        } catch (_) {}
+        throw new Error(details?.message ? details.message : "Save failed.");
+      }
+      setPurposeOptionFormOpen(false);
+      setMessage({ type: "ok", text: "Purpose saved." });
+      await loadChecklistOptions();
+      await loadChecklists();
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      setOptionsSaving(false);
+    }
+  };
+
+  const deletePurposeOption = async (id) => {
+    if (!window.confirm("Delete this purpose? It must not be used by any checklist.")) return;
+    try {
+      const res = await fetch(`${API_BASE}/checklists/options/purposes/${id}`, { method: "DELETE", headers });
+      if (!res.ok) {
+        let details = null;
+        try {
+          details = await res.json();
+        } catch (_) {}
+        throw new Error(details?.message ? details.message : "Delete failed.");
+      }
+      setMessage({ type: "ok", text: "Purpose deleted." });
+      await loadChecklistOptions();
+      await loadChecklists();
+      if (purposeOptionId === id) setPurposeOptionId("");
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    }
+  };
+
   const create = async (e) => {
     e.preventDefault();
     if (!gradeGroupId) {
       setMessage({ type: "error", text: "Select a grade group." });
       return;
     }
+    if (!targetOptionId || !purposeOptionId) {
+      setMessage({ type: "error", text: "Select a target and purpose (load options or add them under Targets & purposes)." });
+      return;
+    }
+    const routing =
+      targetOptions.find((o) => o.id === targetOptionId)?.routingKind ?? "SCHOOL";
     const res = await fetch(`${API_BASE}/checklists`, {
       method: "POST",
       headers: jsonHeaders(headers),
         body: JSON.stringify({
         title,
-        targetType,
-        purpose,
+        targetOptionId,
+        purposeOptionId,
         gradeGroupId,
-        autoAssignOnPublish: CHECKLIST_AUTO_ASSIGN_TARGETS.has(targetType) && Boolean(autoAssignOnPublish)
+        autoAssignOnPublish: CHECKLIST_AUTO_ASSIGN_TARGETS.has(routing) && Boolean(autoAssignOnPublish)
       })
     });
     if (!res.ok) {
@@ -3330,6 +3478,13 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
         >
           Publish items
         </GhostButton>
+        <GhostButton
+          onClick={() => setChecklistSubTab("options")}
+          ariaLabel="Manage targets and purposes"
+          style={checklistSubTab === "options" ? { background: t.accentSoft, borderColor: t.accent } : undefined}
+        >
+          Targets & purposes
+        </GhostButton>
       </div>
 
       {checklistSubTab === "new" && (
@@ -3344,18 +3499,34 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>
                   <Label>Target</Label>
-                  <select value={targetType} onChange={(e) => setTargetType(e.target.value)} aria-label="Target audience" style={{ padding: 10, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font, width: "100%" }}>
-                    <option value="SCHOOL">School (facility / whole school)</option>
-                    <option value="TEACHER">Teacher (classroom)</option>
-                    <option value="DIRECTOR">School director</option>
-                    <option value="SCHOOL_STAFF">Other school staff (user)</option>
+                  <select
+                    value={targetOptionId}
+                    onChange={(e) => setTargetOptionId(e.target.value)}
+                    aria-label="Target audience"
+                    style={{ padding: 10, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font, width: "100%" }}
+              >
+                    <option value="">Select…</option>
+                    {targetOptions.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.name} ({o.routingKind})
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
                   <Label>Purpose</Label>
-                  <select value={purpose} onChange={(e) => setPurpose(e.target.value)} aria-label="Checklist purpose" style={{ padding: 10, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font, width: "100%" }}>
-                    <option value="CLINICAL_SUPERVISION">Clinical</option>
-                    <option value="ADMINISTRATIVE_SUPERVISION">Administrative</option>
+                  <select
+                    value={purposeOptionId}
+                    onChange={(e) => setPurposeOptionId(e.target.value)}
+                    aria-label="Checklist purpose"
+                    style={{ padding: 10, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font, width: "100%" }}
+              >
+                    <option value="">Select…</option>
+                    {purposeOptions.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -3375,10 +3546,14 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
                   type="checkbox"
                   checked={autoAssignOnPublish}
                   onChange={(e) => setAutoAssignOnPublish(e.target.checked)}
-                  disabled={!CHECKLIST_AUTO_ASSIGN_TARGETS.has(targetType)}
+                  disabled={
+                    !CHECKLIST_AUTO_ASSIGN_TARGETS.has(
+                      targetOptions.find((o) => o.id === targetOptionId)?.routingKind ?? ""
+                    )
+                  }
                   aria-label="Auto-assign on publish"
                 />
-                Auto-assign supervisors to matching schools when this checklist is published (school or director target)
+                Auto-assign supervisors to matching schools when this checklist is published (school or director routing)
               </label>
               <PrimaryButton type="submit">Create checklist</PrimaryButton>
             </form>
@@ -3812,6 +3987,7 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
           <DataTable
         columns={[
           { key: "title", label: "Title" },
+          { key: "target", label: "Target" },
           { key: "purpose", label: "Purpose" },
           { key: "grades", label: "Grades" },
           { key: "auto", label: "Auto-assign" },
@@ -3821,6 +3997,7 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
         rows={items}
         empty="No checklists."
         renderCell={(key, row) => {
+          if (key === "target") return row.targetName ?? row.targetType ?? "—";
           if (key === "grades") {
             if (Array.isArray(row.gradeGroupGradeCodes) && row.gradeGroupGradeCodes.length) {
               const label = row.gradeGroupDisplayName ? `${row.gradeGroupDisplayName}: ` : "";
@@ -3869,6 +4046,156 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
           />
         </>
       )}
+
+      {checklistSubTab === "options" && (
+        <div style={{ display: "grid", gap: 20 }}>
+          <Card style={{ padding: 20 }}>
+            <h2 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 600 }}>Targets</h2>
+            <p style={{ margin: "0 0 12px", color: t.muted, fontSize: 13 }}>
+              Each target has a display name and a routing kind (who the checklist applies to for assignments).
+            </p>
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <PrimaryButton
+                type="button"
+                onClick={() => {
+                  setTargetOptionForm({ id: null, name: "", routingKind: "SCHOOL" });
+                  setTargetOptionFormOpen(true);
+                }}
+              >
+                Add target
+              </PrimaryButton>
+            </div>
+            <DataTable
+              columns={[
+                { key: "name", label: "Name" },
+                { key: "routingKind", label: "Routing" },
+                { key: "actions", label: "" }
+              ]}
+              rows={targetOptions}
+              empty="No targets."
+              renderCell={(key, row) => {
+                if (key === "actions") {
+                  return (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <GhostButton
+                        type="button"
+                        onClick={() => {
+                          setTargetOptionForm({ id: row.id, name: row.name, routingKind: row.routingKind });
+                          setTargetOptionFormOpen(true);
+                        }}
+                      >
+                        Edit
+                      </GhostButton>
+                      <GhostButton type="button" onClick={() => deleteTargetOption(row.id)}>
+                        Delete
+                      </GhostButton>
+                    </div>
+                  );
+                }
+                return row[key] ?? "—";
+              }}
+            />
+          </Card>
+          <Card style={{ padding: 20 }}>
+            <h2 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 600 }}>Purposes</h2>
+            <p style={{ margin: "0 0 12px", color: t.muted, fontSize: 13 }}>Labels describing why the checklist exists (e.g. clinical vs administrative).</p>
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <PrimaryButton
+                type="button"
+                onClick={() => {
+                  setPurposeOptionForm({ id: null, name: "" });
+                  setPurposeOptionFormOpen(true);
+                }}
+              >
+                Add purpose
+              </PrimaryButton>
+            </div>
+            <DataTable
+              columns={[
+                { key: "name", label: "Name" },
+                { key: "actions", label: "" }
+              ]}
+              rows={purposeOptions}
+              empty="No purposes."
+              renderCell={(key, row) => {
+                if (key === "actions") {
+                  return (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <GhostButton
+                        type="button"
+                        onClick={() => {
+                          setPurposeOptionForm({ id: row.id, name: row.name });
+                          setPurposeOptionFormOpen(true);
+                        }}
+                      >
+                        Edit
+                      </GhostButton>
+                      <GhostButton type="button" onClick={() => deletePurposeOption(row.id)}>
+                        Delete
+                      </GhostButton>
+                    </div>
+                  );
+                }
+                return row[key] ?? "—";
+              }}
+            />
+          </Card>
+        </div>
+      )}
+
+      <Modal
+        open={targetOptionFormOpen}
+        onClose={() => (!optionsSaving ? setTargetOptionFormOpen(false) : null)}
+        title={targetOptionForm.id ? "Edit target" : "New target"}
+      >
+        <form onSubmit={saveTargetOptionForm} style={{ display: "grid", gap: 12 }}>
+          <div>
+            <Label>Name</Label>
+            <Input
+              value={targetOptionForm.name}
+              onChange={(e) => setTargetOptionForm((p) => ({ ...p, name: e.target.value }))}
+              required
+            />
+          </div>
+          <div>
+            <Label>Routing kind</Label>
+            <select
+              value={targetOptionForm.routingKind}
+              onChange={(e) => setTargetOptionForm((p) => ({ ...p, routingKind: e.target.value }))}
+              style={{ padding: 10, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font, width: "100%" }}
+            >
+              {["SCHOOL", "TEACHER", "DIRECTOR", "SCHOOL_STAFF"].map((k) => (
+                <option key={k} value={k}>
+                  {k}
+                </option>
+              ))}
+            </select>
+          </div>
+          <PrimaryButton type="submit" disabled={optionsSaving}>
+            {optionsSaving ? "Saving…" : "Save"}
+          </PrimaryButton>
+        </form>
+      </Modal>
+
+      <Modal
+        open={purposeOptionFormOpen}
+        onClose={() => (!optionsSaving ? setPurposeOptionFormOpen(false) : null)}
+        title={purposeOptionForm.id ? "Edit purpose" : "New purpose"}
+      >
+        <form onSubmit={savePurposeOptionForm} style={{ display: "grid", gap: 12 }}>
+          <div>
+            <Label>Name</Label>
+            <Input
+              value={purposeOptionForm.name}
+              onChange={(e) => setPurposeOptionForm((p) => ({ ...p, name: e.target.value }))}
+              required
+            />
+          </div>
+          <PrimaryButton type="submit" disabled={optionsSaving}>
+            {optionsSaving ? "Saving…" : "Save"}
+          </PrimaryButton>
+        </form>
+      </Modal>
 
       <Modal
         open={typeDefaultsModalOpen}
@@ -4024,27 +4351,37 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
           <div><Label>Title</Label><Input value={editForm.title} onChange={(e) => setEditForm((p) => ({ ...p, title: e.target.value }))} required /></div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div>
-              <Label>Target type</Label>
+              <Label>Target</Label>
               <select
-                value={editForm.targetType}
-                onChange={(e) => setEditForm((p) => ({ ...p, targetType: e.target.value }))}
-                style={{ padding: 10, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font }}
+                value={editForm.targetOptionId}
+                onChange={(e) => {
+                  const nextId = e.target.value;
+                  const rk = targetOptions.find((o) => o.id === nextId)?.routingKind ?? "SCHOOL";
+                  setEditForm((p) => ({ ...p, targetOptionId: nextId, targetType: rk }));
+                }}
+                style={{ padding: 10, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font, width: "100%" }}
               >
-                <option value="SCHOOL">School</option>
-                <option value="TEACHER">Teacher</option>
-                <option value="DIRECTOR">Director</option>
-                <option value="SCHOOL_STAFF">School staff</option>
+                <option value="">Select…</option>
+                {targetOptions.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name} ({o.routingKind})
+                  </option>
+                ))}
               </select>
             </div>
             <div>
               <Label>Purpose</Label>
               <select
-                value={editForm.purpose}
-                onChange={(e) => setEditForm((p) => ({ ...p, purpose: e.target.value }))}
-                style={{ padding: 10, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font }}
+                value={editForm.purposeOptionId}
+                onChange={(e) => setEditForm((p) => ({ ...p, purposeOptionId: e.target.value }))}
+                style={{ padding: 10, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font, width: "100%" }}
               >
-                <option value="CLINICAL_SUPERVISION">Clinical</option>
-                <option value="ADMINISTRATIVE_SUPERVISION">Administrative</option>
+                <option value="">Select…</option>
+                {purposeOptions.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -4071,7 +4408,7 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
               onChange={(e) => setEditForm((p) => ({ ...p, autoAssignOnPublish: e.target.checked }))}
               disabled={!CHECKLIST_AUTO_ASSIGN_TARGETS.has(editForm.targetType)}
             />
-            Auto-assign on publish (school or director target)
+            Auto-assign on publish (school or director routing)
           </label>
           <PrimaryButton type="submit" disabled={editBusy}>
             {editBusy ? "Saving…" : "Save changes"}

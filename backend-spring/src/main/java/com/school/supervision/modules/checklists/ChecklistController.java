@@ -50,7 +50,10 @@ public class ChecklistController {
             UUID id,
             String title,
             String targetType,
+            String targetName,
+            UUID targetOptionId,
             String purpose,
+            UUID purposeOptionId,
             UUID gradeGroupId,
             String gradeGroupDisplayName,
             String gradesDescription,
@@ -67,7 +70,7 @@ public class ChecklistController {
         UUID orgId = requireTenant();
         Map<UUID, GradeGroup> gradeMap = gradeGroupRepository.findAllByOrganizationId(orgId).stream()
                 .collect(Collectors.toMap(GradeGroup::getId, Function.identity(), (a, b) -> a));
-        List<Checklist> all = checklistRepository.findAllByOrganizationId(orgId);
+        List<Checklist> all = checklistRepository.findAllByOrganizationIdWithOptions(orgId);
         Set<UUID> coordinatorIds = all.stream()
                 .map(Checklist::getCoordinatorUserId)
                 .filter(java.util.Objects::nonNull)
@@ -90,7 +93,10 @@ public class ChecklistController {
                             c.getId(),
                             c.getTitle(),
                             c.getTargetType().name(),
-                            c.getPurpose() == null ? null : c.getPurpose().name(),
+                            c.getTargetOption().getName(),
+                            c.getTargetOption().getId(),
+                            c.getPurposeOption().getName(),
+                            c.getPurposeOption().getId(),
                             c.getGradeGroupId(),
                             gg != null ? gg.getDisplayName() : null,
                             gg != null ? gg.getGradesDescription() : c.getGradeScope(),
@@ -160,8 +166,8 @@ public class ChecklistController {
                 checklistId,
                 java.util.Map.of(
                         "title", request.title(),
-                        "targetType", request.targetType().name(),
-                        "purpose", request.purpose().name(),
+                        "targetOptionId", request.targetOptionId().toString(),
+                        "purposeOptionId", request.purposeOptionId().toString(),
                         "gradeGroupId", request.gradeGroupId().toString()
                 )
         );

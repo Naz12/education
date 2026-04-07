@@ -13,9 +13,9 @@ public final class ChecklistDtos {
 
     public record CreateChecklistRequest(
             @NotBlank String title,
-            @NotNull DomainEnums.TargetType targetType,
+            @NotNull UUID targetOptionId,
             DomainEnums.DisplayMode displayMode,
-            @NotNull DomainEnums.ChecklistPurpose purpose,
+            @NotNull UUID purposeOptionId,
             @NotNull UUID gradeGroupId,
             /** When true (default), publishing creates school assignments for matching grades. */
             Boolean autoAssignOnPublish
@@ -23,11 +23,29 @@ public final class ChecklistDtos {
 
     public record UpdateChecklistRequest(
             @NotBlank String title,
-            @NotNull DomainEnums.TargetType targetType,
-            @NotNull DomainEnums.ChecklistPurpose purpose,
+            @NotNull UUID targetOptionId,
+            @NotNull UUID purposeOptionId,
             @NotNull UUID gradeGroupId,
             Boolean autoAssignOnPublish
     ) {}
+
+    public record TargetOptionResponse(UUID id, String name, String routingKind) {}
+
+    public record PurposeOptionResponse(UUID id, String name) {}
+
+    public record CreateTargetOptionRequest(
+            @NotBlank String name,
+            @NotNull DomainEnums.TargetType routingKind
+    ) {}
+
+    public record UpdateTargetOptionRequest(
+            @NotBlank String name,
+            @NotNull DomainEnums.TargetType routingKind
+    ) {}
+
+    public record CreatePurposeOptionRequest(@NotBlank String name) {}
+
+    public record UpdatePurposeOptionRequest(@NotBlank String name) {}
 
     public record ItemRequest(
             @NotBlank String question,

@@ -459,8 +459,8 @@ class ApiClient {
 
   static Future<String> createChecklist({
     required String title,
-    required String targetType,
-    required String purpose,
+    required String targetOptionId,
+    required String purposeOptionId,
     required String gradeGroupId,
     bool autoAssignOnPublish = true,
   }) async {
@@ -468,8 +468,8 @@ class ApiClient {
       '/checklists',
       data: {
         'title': title,
-        'targetType': targetType,
-        'purpose': purpose,
+        'targetOptionId': targetOptionId,
+        'purposeOptionId': purposeOptionId,
         'gradeGroupId': gradeGroupId,
         'autoAssignOnPublish': autoAssignOnPublish,
       },
@@ -492,8 +492,8 @@ class ApiClient {
   static Future<void> patchChecklist({
     required String checklistId,
     required String title,
-    required String targetType,
-    required String purpose,
+    required String targetOptionId,
+    required String purposeOptionId,
     required String gradeGroupId,
     required bool autoAssignOnPublish,
   }) async {
@@ -501,8 +501,8 @@ class ApiClient {
       '/checklists/$checklistId',
       data: {
         'title': title,
-        'targetType': targetType,
-        'purpose': purpose,
+        'targetOptionId': targetOptionId,
+        'purposeOptionId': purposeOptionId,
         'gradeGroupId': gradeGroupId,
         'autoAssignOnPublish': autoAssignOnPublish,
       },
@@ -536,6 +536,59 @@ class ApiClient {
     final response = await _dio.get('/checklists/$checklistId/versions',
         options: _authOptions());
     return response.data as List<dynamic>;
+  }
+
+  static Future<List<dynamic>> fetchChecklistTargetOptions() async {
+    final response = await _dio.get('/checklists/options/targets',
+        options: _authOptions());
+    return response.data as List<dynamic>;
+  }
+
+  static Future<List<dynamic>> fetchChecklistPurposeOptions() async {
+    final response = await _dio.get('/checklists/options/purposes',
+        options: _authOptions());
+    return response.data as List<dynamic>;
+  }
+
+  static Future<void> postChecklistTargetOption({
+    required String name,
+    required String routingKind,
+  }) async {
+    await _dio.post(
+      '/checklists/options/targets',
+      data: {'name': name, 'routingKind': routingKind},
+      options: _authOptions(),
+    );
+  }
+
+  static Future<void> patchChecklistTargetOption(
+      String id, Map<String, dynamic> body) async {
+    await _dio.patch('/checklists/options/targets/$id',
+        data: body, options: _authOptions());
+  }
+
+  static Future<void> deleteChecklistTargetOption(String id) async {
+    await _dio.delete('/checklists/options/targets/$id',
+        options: _authOptions());
+  }
+
+  static Future<void> postChecklistPurposeOption({required String name}) async {
+    await _dio.post(
+      '/checklists/options/purposes',
+      data: {'name': name},
+      options: _authOptions(),
+    );
+  }
+
+  static Future<void> patchChecklistPurposeOption(
+      String id, Map<String, dynamic> body) async {
+    await _dio.patch('/checklists/options/purposes/$id',
+        data: body, options: _authOptions());
+  }
+
+  static Future<void> deleteChecklistPurposeOption(String id) async {
+    await _dio.delete('/checklists/options/purposes/$id',
+        options: _authOptions());
   }
 
   static Future<List<dynamic>> fetchChecklistTypeDefaults() async {

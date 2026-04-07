@@ -1,7 +1,6 @@
 package com.school.supervision.modules.checklists;
 
 import com.school.supervision.common.domain.DomainEnums.DisplayMode;
-import com.school.supervision.common.domain.DomainEnums.ChecklistPurpose;
 import com.school.supervision.common.domain.DomainEnums.TargetType;
 import com.school.supervision.common.domain.TenantScopedEntity;
 import jakarta.persistence.*;
@@ -13,14 +12,15 @@ import java.util.UUID;
 public class Checklist extends TenantScopedEntity {
     @Column(nullable = false)
     private String title;
-    @Enumerated(EnumType.STRING)
-    @Column(name = "target_type", nullable = false)
-    private TargetType targetType;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "target_option_id", nullable = false)
+    private ChecklistTargetOption targetOption;
     @Enumerated(EnumType.STRING)
     @Column(name = "display_mode", nullable = false)
     private DisplayMode displayMode;
-    @Enumerated(EnumType.STRING)
-    private ChecklistPurpose purpose;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "purpose_option_id", nullable = false)
+    private ChecklistPurposeOption purposeOption;
     @Column(name = "grade_scope")
     private String gradeScope;
     @Column(name = "grade_group_id")
@@ -51,12 +51,17 @@ public class Checklist extends TenantScopedEntity {
         this.title = title;
     }
 
+    /** Routing kind for assignments and auto-assignment (same semantics as former {@code TargetType} enum). */
     public TargetType getTargetType() {
-        return targetType;
+        return targetOption != null ? targetOption.getRoutingKind() : null;
     }
 
-    public void setTargetType(TargetType targetType) {
-        this.targetType = targetType;
+    public ChecklistTargetOption getTargetOption() {
+        return targetOption;
+    }
+
+    public void setTargetOption(ChecklistTargetOption targetOption) {
+        this.targetOption = targetOption;
     }
 
     public DisplayMode getDisplayMode() {
@@ -79,12 +84,12 @@ public class Checklist extends TenantScopedEntity {
         this.createdBy = createdBy;
     }
 
-    public ChecklistPurpose getPurpose() {
-        return purpose;
+    public ChecklistPurposeOption getPurposeOption() {
+        return purposeOption;
     }
 
-    public void setPurpose(ChecklistPurpose purpose) {
-        this.purpose = purpose;
+    public void setPurposeOption(ChecklistPurposeOption purposeOption) {
+        this.purposeOption = purposeOption;
     }
 
     public String getGradeScope() {

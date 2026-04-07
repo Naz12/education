@@ -6,7 +6,9 @@ import com.school.supervision.modules.assignments.AssignmentRepository;
 import com.school.supervision.modules.checklists.Checklist;
 import com.school.supervision.modules.checklists.ChecklistItem;
 import com.school.supervision.modules.checklists.ChecklistItemRepository;
+import com.school.supervision.modules.checklists.ChecklistPurposeOptionRepository;
 import com.school.supervision.modules.checklists.ChecklistRepository;
+import com.school.supervision.modules.checklists.ChecklistTargetOptionRepository;
 import com.school.supervision.modules.checklists.ChecklistVersion;
 import com.school.supervision.modules.checklists.ChecklistVersionRepository;
 import com.school.supervision.modules.checklists.GradeGroup;
@@ -44,6 +46,8 @@ public class DemoDataInitializer implements ApplicationRunner {
     private final SubjectRepository subjectRepository;
     private final GeographyService geographyService;
     private final ChecklistRepository checklistRepository;
+    private final ChecklistTargetOptionRepository checklistTargetOptionRepository;
+    private final ChecklistPurposeOptionRepository checklistPurposeOptionRepository;
     private final ChecklistVersionRepository checklistVersionRepository;
     private final ChecklistItemRepository checklistItemRepository;
     private final GradeGroupRepository gradeGroupRepository;
@@ -57,6 +61,8 @@ public class DemoDataInitializer implements ApplicationRunner {
                                SubjectRepository subjectRepository,
                                GeographyService geographyService,
                                ChecklistRepository checklistRepository,
+                               ChecklistTargetOptionRepository checklistTargetOptionRepository,
+                               ChecklistPurposeOptionRepository checklistPurposeOptionRepository,
                                ChecklistVersionRepository checklistVersionRepository,
                                ChecklistItemRepository checklistItemRepository,
                                GradeGroupRepository gradeGroupRepository,
@@ -69,6 +75,8 @@ public class DemoDataInitializer implements ApplicationRunner {
         this.subjectRepository = subjectRepository;
         this.geographyService = geographyService;
         this.checklistRepository = checklistRepository;
+        this.checklistTargetOptionRepository = checklistTargetOptionRepository;
+        this.checklistPurposeOptionRepository = checklistPurposeOptionRepository;
         this.checklistVersionRepository = checklistVersionRepository;
         this.checklistItemRepository = checklistItemRepository;
         this.gradeGroupRepository = gradeGroupRepository;
@@ -243,9 +251,13 @@ public class DemoDataInitializer implements ApplicationRunner {
                     Checklist checklist = new Checklist();
                     checklist.setOrganizationId(DEFAULT_ORG_ID);
                     checklist.setTitle("School Leadership and Classroom Readiness");
-                    checklist.setTargetType(DomainEnums.TargetType.SCHOOL);
+                    checklist.setTargetOption(checklistTargetOptionRepository
+                            .findByOrganizationIdAndName(DEFAULT_ORG_ID, "School")
+                            .orElseThrow());
                     checklist.setDisplayMode(DomainEnums.DisplayMode.GROUPED);
-                    checklist.setPurpose(DomainEnums.ChecklistPurpose.CLINICAL_SUPERVISION);
+                    checklist.setPurposeOption(checklistPurposeOptionRepository
+                            .findByOrganizationIdAndName(DEFAULT_ORG_ID, "Clinical")
+                            .orElseThrow());
                     checklist.setGradeGroupId(gradeGroupId);
                     checklist.setGradeScope(gg.getGradesDescription());
                     checklist.setCreatedBy(actorUserId);

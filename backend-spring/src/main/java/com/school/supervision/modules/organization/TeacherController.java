@@ -163,7 +163,7 @@ public class TeacherController {
                         schoolNames.get(t.getSchoolId()),
                         t.getUserId(),
                         GradeCodes.sortForDisplay(
-                                GradeCodes.normalize(GradeCodes.parseJsonArray(objectMapper, t.getResponsibleGradeCodesJson()))))
+                                GradeCodes.normalize(GradeCodes.parseJsonArray(objectMapper, t.getResponsibleGradeCodesJson())))))
                 .toList();
     }
 

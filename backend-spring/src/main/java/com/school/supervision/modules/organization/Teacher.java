@@ -19,6 +19,10 @@ public class Teacher extends TenantScopedEntity {
     @Column(name = "subject_id", nullable = false)
     private UUID subjectId;
 
+    /** JSON array of canonical grade codes (KG1…12) this teacher is responsible for. */
+    @Column(name = "responsible_grade_codes", columnDefinition = "TEXT")
+    private String responsibleGradeCodesJson = "[]";
+
     public UUID getSchoolId() {
         return schoolId;
     }
@@ -49,5 +53,13 @@ public class Teacher extends TenantScopedEntity {
 
     public void setSubjectId(UUID subjectId) {
         this.subjectId = subjectId;
+    }
+
+    public String getResponsibleGradeCodesJson() {
+        return responsibleGradeCodesJson;
+    }
+
+    public void setResponsibleGradeCodesJson(String responsibleGradeCodesJson) {
+        this.responsibleGradeCodesJson = responsibleGradeCodesJson == null ? "[]" : responsibleGradeCodesJson;
     }
 }

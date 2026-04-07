@@ -1,5 +1,8 @@
 package com.school.supervision.modules.organization;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.school.supervision.common.grades.GradeCodes;
 import com.school.supervision.common.tenant.TenantContext;
 import com.school.supervision.modules.assignments.Assignment;
 import com.school.supervision.modules.assignments.AssignmentRepository;
@@ -41,6 +44,7 @@ public class TeacherController {
     private final PasswordEncoder passwordEncoder;
     private final AssignmentRepository assignmentRepository;
     private final AuditService auditService;
+    private final ObjectMapper objectMapper;
 
     public TeacherController(TeacherRepository teacherRepository,
                              SchoolRepository schoolRepository,
@@ -49,7 +53,8 @@ public class TeacherController {
                              SubjectRepository subjectRepository,
                              PasswordEncoder passwordEncoder,
                              AssignmentRepository assignmentRepository,
-                             AuditService auditService) {
+                             AuditService auditService,
+                             ObjectMapper objectMapper) {
         this.teacherRepository = teacherRepository;
         this.schoolRepository = schoolRepository;
         this.userRepository = userRepository;
@@ -58,6 +63,27 @@ public class TeacherController {
         this.passwordEncoder = passwordEncoder;
         this.assignmentRepository = assignmentRepository;
         this.auditService = auditService;
+        this.objectMapper = objectMapper;
+    }
+
+    private String writeTeacherResponsibleGradesJson(School school, List<String> raw) {
+        Set<String> norm = GradeCodes.normalize(raw);
+        if (norm.isEmpty()) {
+            throw new IllegalArgumentException("Select at least one grade this staff is responsible for");
+        }
+        Set<String> schoolGrades = GradeCodes.normalize(GradeCodes.parseJsonArray(objectMapper, school.getSupportedGradeCodesJson()));
+        if (!schoolGrades.isEmpty()) {
+            for (String g : norm) {
+                if (!schoolGrades.contains(g)) {
+                    throw new IllegalArgumentException("Each selected grade must be among this school's supported grades");
+                }
+            }
+        }
+        try {
+            return objectMapper.writeValueAsString(GradeCodes.sortForDisplay(norm));
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("Could not store responsible grades");
+        }
     }
 
     public record TeacherSummary(
@@ -67,12 +93,14 @@ public class TeacherController {
             String subject,
             UUID schoolId,
             String schoolName,
-            UUID userId
+            UUID userId,
+            List<String> responsibleGradeCodes
     ) {}
     public record CreateTeacherRequest(
             @NotBlank String name,
             @NotNull UUID subjectId,
             @NotNull UUID schoolId,
+            @NotNull List<String> responsibleGradeCodes,
             String username,
             String password,
             String email,
@@ -85,7 +113,8 @@ public class TeacherController {
     public record UpdateTeacherRequest(
             @NotBlank String name,
             @NotNull UUID subjectId,
-            @NotNull UUID schoolId
+            @NotNull UUID schoolId,
+            @NotNull List<String> responsibleGradeCodes
     ) {}
 
     @GetMapping
@@ -132,7 +161,9 @@ public class TeacherController {
                         subjectNames.get(t.getSubjectId()),
                         t.getSchoolId(),
                         schoolNames.get(t.getSchoolId()),
-                        t.getUserId()))
+                        t.getUserId(),
+                        GradeCodes.sortForDisplay(
+                                GradeCodes.normalize(GradeCodes.parseJsonArray(objectMapper, t.getResponsibleGradeCodesJson()))))
                 .toList();
     }
 
@@ -141,10 +172,11 @@ public class TeacherController {
         User current = requireCurrentUser(authentication);
         requireAdminOrCoordinator(current);
         UUID orgId = requireTenant();
-        if (!isSuperAdmin(current)) {
-            schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(request.schoolId(), orgId, current.getId())
-                    .orElseThrow(() -> new IllegalArgumentException("School not found in coordinator scope"));
-        }
+        School schoolForTeacher = isSuperAdmin(current)
+                ? schoolRepository.findByIdAndOrganizationId(request.schoolId(), orgId)
+                .orElseThrow(() -> new IllegalArgumentException("School not found"))
+                : schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(request.schoolId(), orgId, current.getId())
+                        .orElseThrow(() -> new IllegalArgumentException("School not found in coordinator scope"));
         subjectRepository.findByIdAndOrganizationId(request.subjectId(), orgId)
                 .orElseThrow(() -> new IllegalArgumentException("Subject not found"));
         UUID userId = null;
@@ -176,6 +208,7 @@ public class TeacherController {
         teacher.setSubjectId(request.subjectId());
         teacher.setSchoolId(request.schoolId());
         teacher.setUserId(userId);
+        teacher.setResponsibleGradeCodesJson(writeTeacherResponsibleGradesJson(schoolForTeacher, request.responsibleGradeCodes()));
         UUID id = teacherRepository.save(teacher).getId();
         auditService.record(
                 orgId,
@@ -210,9 +243,13 @@ public class TeacherController {
         subjectRepository.findByIdAndOrganizationId(request.subjectId(), orgId)
                 .orElseThrow(() -> new IllegalArgumentException("Subject not found"));
 
+        School schoolForTeacher = schoolRepository.findByIdAndOrganizationId(request.schoolId(), orgId)
+                .orElseThrow(() -> new IllegalArgumentException("School not found"));
+
         teacher.setName(request.name());
         teacher.setSubjectId(request.subjectId());
         teacher.setSchoolId(request.schoolId());
+        teacher.setResponsibleGradeCodesJson(writeTeacherResponsibleGradesJson(schoolForTeacher, request.responsibleGradeCodes()));
         teacherRepository.save(teacher);
 
         auditService.record(

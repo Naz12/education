@@ -332,10 +332,16 @@ class ApiClient {
     required String name,
     required String subjectId,
     required String schoolId,
+    required List<String> responsibleGradeCodes,
   }) async {
     await _dio.patch(
       '/teachers/$teacherId',
-      data: {'name': name, 'subjectId': subjectId, 'schoolId': schoolId},
+      data: {
+        'name': name,
+        'subjectId': subjectId,
+        'schoolId': schoolId,
+        'responsibleGradeCodes': responsibleGradeCodes,
+      },
       options: _authOptions(),
     );
   }

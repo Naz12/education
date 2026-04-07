@@ -16,20 +16,21 @@ const CHECKLIST_AUTO_ASSIGN_TARGETS = new Set(["SCHOOL", "DIRECTOR"]);
 /** Assignment targets that require a school for geo and routing. */
 const ASSIGNMENT_SCHOOL_TARGETS = new Set(["SCHOOL", "DIRECTOR", "SCHOOL_STAFF"]);
 
-function GradeCodeCheckboxes({ label, value, onChange, disabled }) {
+function GradeCodeCheckboxes({ label, value, onChange, disabled, codes }) {
+  const list = Array.isArray(codes) && codes.length > 0 ? codes : CANONICAL_GRADE_CODES;
   const set = new Set(value || []);
   const toggle = (code) => {
     if (disabled) return;
     const next = new Set(set);
     if (next.has(code)) next.delete(code);
     else next.add(code);
-    onChange(CANONICAL_GRADE_CODES.filter((c) => next.has(c)));
+    onChange(list.filter((c) => next.has(c)));
   };
   return (
     <div>
       {label ? <Label>{label}</Label> : null}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: label ? 8 : 0 }}>
-        {CANONICAL_GRADE_CODES.map((code) => (
+        {list.map((code) => (
           <label
             key={code}
             style={{
@@ -1813,6 +1814,7 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
     fullName: "",
     subjectId: "",
     schoolId: "",
+    responsibleGradeCodes: [],
     username: "",
     password: "",
     email: "",
@@ -1833,6 +1835,7 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
     name: "",
     subjectId: "",
     schoolId: "",
+    responsibleGradeCodes: [],
     email: "",
     phone: "",
     city: "",
@@ -1842,6 +1845,18 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
   const [deleteTeacherOpen, setDeleteTeacherOpen] = useState(false);
   const [deleteTeacherBusy, setDeleteTeacherBusy] = useState(false);
   const [deleteTeacherId, setDeleteTeacherId] = useState("");
+
+  const addFormSchool = useMemo(() => schools.find((s) => s.id === form.schoolId), [schools, form.schoolId]);
+  const addGradeChoices = useMemo(() => {
+    if (!addFormSchool || !Array.isArray(addFormSchool.supportedGradeCodes)) return CANONICAL_GRADE_CODES;
+    return addFormSchool.supportedGradeCodes.length > 0 ? addFormSchool.supportedGradeCodes : CANONICAL_GRADE_CODES;
+  }, [addFormSchool]);
+
+  const editFormSchool = useMemo(() => schools.find((s) => s.id === editTeacherForm.schoolId), [schools, editTeacherForm.schoolId]);
+  const editGradeChoices = useMemo(() => {
+    if (!editFormSchool || !Array.isArray(editFormSchool.supportedGradeCodes)) return CANONICAL_GRADE_CODES;
+    return editFormSchool.supportedGradeCodes.length > 0 ? editFormSchool.supportedGradeCodes : CANONICAL_GRADE_CODES;
+  }, [editFormSchool]);
 
   const loadSchools = () => fetch(`${API_BASE}/schools`, { headers }).then((r) => r.json()).then(setSchools);
   const loadTypes = () => fetch(`${API_BASE}/school-stuff/types`, { headers }).then((r) => r.json()).then(setTypes);
@@ -1872,6 +1887,7 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
       fullName: "",
       subjectId: roleName === "TEACHER" ? "" : p.subjectId,
       schoolId: filterSchoolId || "",
+      responsibleGradeCodes: [],
       username: "",
       password: "",
       email: "",
@@ -1890,6 +1906,12 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
       setMessage({ type: "error", text: "Select a type first." });
       return;
     }
+    if (selectedType?.name === "TEACHER") {
+      if (!form.responsibleGradeCodes || form.responsibleGradeCodes.length === 0) {
+        setMessage({ type: "error", text: "Select at least one grade this teacher is responsible for." });
+        return;
+      }
+    }
     setLoadingBusy(true);
     try {
       const payload = {
@@ -1901,6 +1923,7 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
         phone: form.phone || null,
         schoolId: form.schoolId || null,
         subjectId: selectedType?.name === "TEACHER" ? (form.subjectId || null) : null,
+        responsibleGradeCodes: selectedType?.name === "TEACHER" ? form.responsibleGradeCodes : null,
         city: form.city || null,
         subCity: form.subCity || null,
         wereda: form.wereda || null
@@ -1917,6 +1940,7 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
         fullName: "",
         subjectId: "",
         schoolId: "",
+        responsibleGradeCodes: [],
         username: "",
         password: "",
         email: "",
@@ -1962,6 +1986,7 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
       name: row.fullName || "",
       subjectId: row.subjectId || "",
       schoolId: row.schoolId || "",
+      responsibleGradeCodes: Array.isArray(row.responsibleGradeCodes) ? row.responsibleGradeCodes : [],
       email: row.email || "",
       phone: row.phone || "",
       city: row.city || "",
@@ -1974,6 +1999,10 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
 
   const saveEditTeacher = async (e) => {
     e.preventDefault();
+    if (editTeacherForm.type === "TEACHER" && (!editTeacherForm.responsibleGradeCodes || editTeacherForm.responsibleGradeCodes.length === 0)) {
+      setMessage({ type: "error", text: "Select at least one grade this teacher is responsible for." });
+      return;
+    }
     setEditTeacherBusy(true);
     try {
       const res = editTeacherForm.type === "TEACHER"
@@ -1983,7 +2012,8 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
             body: JSON.stringify({
               name: editTeacherForm.name,
               subjectId: editTeacherForm.subjectId || null,
-              schoolId: editTeacherForm.schoolId
+              schoolId: editTeacherForm.schoolId,
+              responsibleGradeCodes: editTeacherForm.responsibleGradeCodes
             })
           })
         : await fetch(`${API_BASE}/school-stuff/${editTeacherForm.id}`, {
@@ -1994,6 +2024,7 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
               fullName: editTeacherForm.name,
               subjectId: editTeacherForm.type === "TEACHER" ? (editTeacherForm.subjectId || null) : null,
               schoolId: editTeacherForm.schoolId || null,
+              responsibleGradeCodes: editTeacherForm.type === "TEACHER" ? editTeacherForm.responsibleGradeCodes : null,
               email: editTeacherForm.email || null,
               phone: editTeacherForm.phone || null,
               city: editTeacherForm.city || null,
@@ -2204,6 +2235,7 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
           { key: "fullName", label: str.name },
           { key: "subject", label: "Subject" },
           { key: "schoolName", label: "School" },
+          { key: "grades", label: "Grades" },
           { key: "username", label: "Username" },
           { key: "email", label: "Email" },
           { key: "phone", label: "Phone" },
@@ -2214,6 +2246,12 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
         renderCell={(key, row) => {
           if (key === "subject") return row.subject || "—";
           if (key === "schoolName") return row.schoolName || "—";
+          if (key === "grades") {
+            if (row.type === "TEACHER" && Array.isArray(row.responsibleGradeCodes) && row.responsibleGradeCodes.length) {
+              return row.responsibleGradeCodes.join(", ");
+            }
+            return "—";
+          }
           if (key === "actions") {
             return (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -2263,7 +2301,19 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
                 <Label>School</Label>
                 <select
                   value={form.schoolId}
-                  onChange={(e) => setForm((p) => ({ ...p, schoolId: e.target.value }))}
+                  onChange={(e) => {
+                    const nextSchoolId = e.target.value;
+                    const sch = schools.find((s) => s.id === nextSchoolId);
+                    const allowed =
+                      sch && Array.isArray(sch.supportedGradeCodes) && sch.supportedGradeCodes.length > 0
+                        ? sch.supportedGradeCodes
+                        : CANONICAL_GRADE_CODES;
+                    setForm((p) => ({
+                      ...p,
+                      schoolId: nextSchoolId,
+                      responsibleGradeCodes: (p.responsibleGradeCodes || []).filter((c) => allowed.includes(c))
+                    }));
+                  }}
                   required
                   style={{ fontFamily: t.font, width: "100%", padding: "10px 12px", borderRadius: t.radius, border: `1px solid ${t.line}` }}
                 >
@@ -2273,6 +2323,12 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
                   ))}
                 </select>
               </div>
+              <GradeCodeCheckboxes
+                label="Grades this teacher is responsible for"
+                value={form.responsibleGradeCodes}
+                onChange={(codes) => setForm((p) => ({ ...p, responsibleGradeCodes: codes }))}
+                codes={addGradeChoices}
+              />
               <p style={{ margin: 0, fontSize: 12, color: t.muted }}>
                 Optional login (leave blank to create teacher without an account).
               </p>
@@ -2356,7 +2412,19 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
                 <Label>School</Label>
                 <select
                   value={editTeacherForm.schoolId}
-                  onChange={(e) => setEditTeacherForm((p) => ({ ...p, schoolId: e.target.value }))}
+                  onChange={(e) => {
+                    const nextSchoolId = e.target.value;
+                    const sch = schools.find((s) => s.id === nextSchoolId);
+                    const allowed =
+                      sch && Array.isArray(sch.supportedGradeCodes) && sch.supportedGradeCodes.length > 0
+                        ? sch.supportedGradeCodes
+                        : CANONICAL_GRADE_CODES;
+                    setEditTeacherForm((p) => ({
+                      ...p,
+                      schoolId: nextSchoolId,
+                      responsibleGradeCodes: (p.responsibleGradeCodes || []).filter((c) => allowed.includes(c))
+                    }));
+                  }}
                   required
                   style={{ fontFamily: t.font, width: "100%", padding: "10px 12px", borderRadius: t.radius, border: `1px solid ${t.line}` }}
                 >
@@ -2366,6 +2434,12 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
                   ))}
                 </select>
               </div>
+              <GradeCodeCheckboxes
+                label="Grades this teacher is responsible for"
+                value={editTeacherForm.responsibleGradeCodes}
+                onChange={(codes) => setEditTeacherForm((p) => ({ ...p, responsibleGradeCodes: codes }))}
+                codes={editGradeChoices}
+              />
             </>
           )}
           {editTeacherForm.type !== "TEACHER" && (
@@ -2819,6 +2893,7 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
     }
   ]);
   const [message, setMessage] = useState(null);
+  const [checklistSubTab, setChecklistSubTab] = useState("new");
   const [ggModal, setGgModal] = useState(false);
 
   const defaultDraftItems = useMemo(() => {
@@ -3240,58 +3315,94 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
       />
       {message && <Alert type={message.type}>{message.text}</Alert>}
 
-      <Card style={{ padding: 20, marginBottom: 20 }}>
-        <h2 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 600 }}>{str.newChecklist}</h2>
-        <form onSubmit={create} style={{ display: "grid", gap: 12, maxWidth: 480 }}>
-          <Input placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} required />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <select value={targetType} onChange={(e) => setTargetType(e.target.value)} style={{ padding: 10, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font }}>
-              <option value="SCHOOL">School (facility / whole school)</option>
-              <option value="TEACHER">Teacher (classroom)</option>
-              <option value="DIRECTOR">School director</option>
-              <option value="SCHOOL_STAFF">Other school staff (user)</option>
-            </select>
-            <select value={purpose} onChange={(e) => setPurpose(e.target.value)} style={{ padding: 10, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font }}>
-              <option value="CLINICAL_SUPERVISION">Clinical</option>
-              <option value="ADMINISTRATIVE_SUPERVISION">Administrative</option>
-            </select>
-          </div>
-          <select value={gradeGroupId} onChange={(e) => setGradeGroupId(e.target.value)} required style={{ padding: 10, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font }}>
-            <option value="">Grade group…</option>
-            {gradeGroups.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.displayName} — {Array.isArray(g.gradeCodes) && g.gradeCodes.length ? g.gradeCodes.join(", ") : g.gradesDescription}
-              </option>
-            ))}
-          </select>
-          <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: t.text }}>
-            <input
-              type="checkbox"
-              checked={autoAssignOnPublish}
-              onChange={(e) => setAutoAssignOnPublish(e.target.checked)}
-              disabled={!CHECKLIST_AUTO_ASSIGN_TARGETS.has(targetType)}
-            />
-            Auto-assign supervisors to matching schools when this checklist is published (school or director target)
-          </label>
-          <PrimaryButton type="submit">Create checklist</PrimaryButton>
-        </form>
-      </Card>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        <GhostButton
+          onClick={() => setChecklistSubTab("new")}
+          ariaLabel="Show new checklist section"
+          style={checklistSubTab === "new" ? { background: t.accentSoft, borderColor: t.accent } : undefined}
+        >
+          New checklist
+        </GhostButton>
+        <GhostButton
+          onClick={() => setChecklistSubTab("publish")}
+          ariaLabel="Show publish items section"
+          style={checklistSubTab === "publish" ? { background: t.accentSoft, borderColor: t.accent } : undefined}
+        >
+          Publish items
+        </GhostButton>
+      </div>
 
-      {isSuperAdmin && (
-        <Card style={{ padding: 20, marginBottom: 20 }}>
-          <h2 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 600 }}>Default item types</h2>
-          <p style={{ margin: "0 0 12px", color: t.muted, fontSize: 13 }}>
-            Edit the default answer choices for <code>SINGLE_CHOICE</code>, <code>MULTIPLE_CHOICE</code>, <code>YES_NO</code>, and the rating range for <code>RATING</code>.
-          </p>
-          <PrimaryButton type="button" onClick={openTypeDefaultsModal} disabled={typeDefaultsLoading}>
-            {typeDefaultsLoading ? "Loading…" : "Edit defaults"}
-          </PrimaryButton>
-        </Card>
+      {checklistSubTab === "new" && (
+        <>
+          <Card style={{ padding: 20, marginBottom: 20 }}>
+            <h2 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 600 }}>{str.newChecklist}</h2>
+            <form onSubmit={create} style={{ display: "grid", gap: 12, maxWidth: 480 }}>
+              <div>
+                <Label>Title</Label>
+                <Input placeholder="e.g. Classroom observation" value={title} onChange={(e) => setTitle(e.target.value)} required aria-label="Checklist title" />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <Label>Target</Label>
+                  <select value={targetType} onChange={(e) => setTargetType(e.target.value)} aria-label="Target audience" style={{ padding: 10, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font, width: "100%" }}>
+                    <option value="SCHOOL">School (facility / whole school)</option>
+                    <option value="TEACHER">Teacher (classroom)</option>
+                    <option value="DIRECTOR">School director</option>
+                    <option value="SCHOOL_STAFF">Other school staff (user)</option>
+                  </select>
+                </div>
+                <div>
+                  <Label>Purpose</Label>
+                  <select value={purpose} onChange={(e) => setPurpose(e.target.value)} aria-label="Checklist purpose" style={{ padding: 10, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font, width: "100%" }}>
+                    <option value="CLINICAL_SUPERVISION">Clinical</option>
+                    <option value="ADMINISTRATIVE_SUPERVISION">Administrative</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <Label>Grade group</Label>
+                <select value={gradeGroupId} onChange={(e) => setGradeGroupId(e.target.value)} required aria-label="Grade group" style={{ padding: 10, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font, width: "100%" }}>
+                <option value="">Select a grade group…</option>
+                {gradeGroups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.displayName} — {Array.isArray(g.gradeCodes) && g.gradeCodes.length ? g.gradeCodes.join(", ") : g.gradesDescription}
+                  </option>
+                ))}
+                </select>
+              </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: t.text }}>
+                <input
+                  type="checkbox"
+                  checked={autoAssignOnPublish}
+                  onChange={(e) => setAutoAssignOnPublish(e.target.checked)}
+                  disabled={!CHECKLIST_AUTO_ASSIGN_TARGETS.has(targetType)}
+                  aria-label="Auto-assign on publish"
+                />
+                Auto-assign supervisors to matching schools when this checklist is published (school or director target)
+              </label>
+              <PrimaryButton type="submit">Create checklist</PrimaryButton>
+            </form>
+          </Card>
+
+          {isSuperAdmin && (
+            <Card style={{ padding: 20, marginBottom: 20 }}>
+              <h2 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 600 }}>Default item types</h2>
+              <p style={{ margin: "0 0 12px", color: t.muted, fontSize: 13 }}>
+                Edit the default answer choices for <code>SINGLE_CHOICE</code>, <code>MULTIPLE_CHOICE</code>, <code>YES_NO</code>, and the rating range for <code>RATING</code>.
+              </p>
+              <PrimaryButton type="button" onClick={openTypeDefaultsModal} disabled={typeDefaultsLoading}>
+                {typeDefaultsLoading ? "Loading…" : "Edit defaults"}
+              </PrimaryButton>
+            </Card>
+          )}
+        </>
       )}
 
-      <Card style={{ padding: 20, marginBottom: 20 }}>
-        <h2 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 600 }}>Publish items</h2>
-        <form onSubmit={publishVersion} style={{ display: "grid", gap: 12 }}>
+      {checklistSubTab === "publish" && (
+        <>
+          <Card style={{ padding: 20, marginBottom: 20 }}>
+            <h2 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 600 }}>Publish items</h2>
+            <form onSubmit={publishVersion} style={{ display: "grid", gap: 12 }}>
           <div>
             <Label>Checklist to publish/update</Label>
             <select
@@ -3694,11 +3805,11 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
             <GhostButton type="button" onClick={addDraftItem}>Add item</GhostButton>
             <PrimaryButton type="submit">Publish version</PrimaryButton>
           </div>
-        </form>
-      </Card>
+            </form>
+          </Card>
 
-      <h2 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 12px", color: t.muted }}>All checklists</h2>
-      <DataTable
+          <h2 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 12px", color: t.muted }}>All checklists</h2>
+          <DataTable
         columns={[
           { key: "title", label: "Title" },
           { key: "purpose", label: "Purpose" },
@@ -3754,8 +3865,10 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
             );
           }
           return row[key] ?? "—";
-        }}
-      />
+          }}
+          />
+        </>
+      )}
 
       <Modal
         open={typeDefaultsModalOpen}

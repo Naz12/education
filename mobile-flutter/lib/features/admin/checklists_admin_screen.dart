@@ -293,117 +293,174 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? Center(child: Text(_error!))
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  child: ListView(
-                    padding: const EdgeInsets.all(12),
+              : DefaultTabController(
+                  length: 2,
+                  child: Column(
                     children: [
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Text('New checklist', style: Theme.of(context).textTheme.titleSmall),
-                              const SizedBox(height: 8),
-                              TextField(controller: _newTitle, decoration: const InputDecoration(labelText: 'Title')),
-                              DropdownButtonFormField<String>(
-                                initialValue: _newTarget,
-                                decoration: const InputDecoration(labelText: 'Target'),
-                                items: const [
-                                  DropdownMenuItem(value: 'SCHOOL', child: Text('School')),
-                                  DropdownMenuItem(value: 'TEACHER', child: Text('Teacher')),
-                                  DropdownMenuItem(value: 'DIRECTOR', child: Text('Director')),
-                                  DropdownMenuItem(value: 'SCHOOL_STAFF', child: Text('School staff')),
+                      const TabBar(
+                        tabs: [
+                          Tab(text: 'New Checklist'),
+                          Tab(text: 'Publish Items'),
+                        ],
+                      ),
+                      Expanded(
+                        child: TabBarView(
+                          children: [
+                            RefreshIndicator(
+                              onRefresh: _load,
+                              child: ListView(
+                                padding: const EdgeInsets.all(12),
+                                children: [
+                                  Card(
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(16),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                        children: [
+                                          Text('New checklist', style: Theme.of(context).textTheme.titleSmall),
+                                          const SizedBox(height: 8),
+                                          Text('Title', style: Theme.of(context).textTheme.labelLarge),
+                                          const SizedBox(height: 4),
+                                          TextField(
+                                            controller: _newTitle,
+                                            decoration: const InputDecoration(
+                                              hintText: 'e.g. Classroom observation',
+                                              border: OutlineInputBorder(),
+                                              isDense: true,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Text('Target', style: Theme.of(context).textTheme.labelLarge),
+                                          const SizedBox(height: 4),
+                                          DropdownButtonFormField<String>(
+                                            initialValue: _newTarget,
+                                            decoration: const InputDecoration(
+                                              border: OutlineInputBorder(),
+                                              isDense: true,
+                                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                            ),
+                                            items: const [
+                                              DropdownMenuItem(value: 'SCHOOL', child: Text('School')),
+                                              DropdownMenuItem(value: 'TEACHER', child: Text('Teacher')),
+                                              DropdownMenuItem(value: 'DIRECTOR', child: Text('Director')),
+                                              DropdownMenuItem(value: 'SCHOOL_STAFF', child: Text('School staff')),
+                                            ],
+                                            onChanged: (v) => setState(() => _newTarget = v ?? 'SCHOOL'),
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Text('Purpose', style: Theme.of(context).textTheme.labelLarge),
+                                          const SizedBox(height: 4),
+                                          DropdownButtonFormField<String>(
+                                            initialValue: _newPurpose,
+                                            decoration: const InputDecoration(
+                                              border: OutlineInputBorder(),
+                                              isDense: true,
+                                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                            ),
+                                            items: const [
+                                              DropdownMenuItem(value: 'CLINICAL_SUPERVISION', child: Text('Clinical')),
+                                              DropdownMenuItem(value: 'ADMINISTRATIVE_SUPERVISION', child: Text('Administrative')),
+                                            ],
+                                            onChanged: (v) => setState(() => _newPurpose = v ?? 'CLINICAL_SUPERVISION'),
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Text('Grade group', style: Theme.of(context).textTheme.labelLarge),
+                                          const SizedBox(height: 4),
+                                          DropdownButtonFormField<String>(
+                                            initialValue: _newGradeGroupId.isEmpty ? null : _newGradeGroupId,
+                                            decoration: const InputDecoration(
+                                              border: OutlineInputBorder(),
+                                              isDense: true,
+                                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                            ),
+                                            hint: const Text('Select a grade group'),
+                                            items: _gradeGroups
+                                                .map((g) {
+                                                  final m = g as Map<String, dynamic>;
+                                                  return DropdownMenuItem(
+                                                    value: m['id']?.toString(),
+                                                    child: Text(_gradeGroupMenuLabel(m)),
+                                                  );
+                                                })
+                                                .toList(),
+                                            onChanged: (v) => setState(() => _newGradeGroupId = v ?? ''),
+                                          ),
+                                          SwitchListTile(
+                                            contentPadding: EdgeInsets.zero,
+                                            title: const Text('Auto-assign when published'),
+                                            subtitle: const Text('Assigns supervisors to matching schools (school target only)'),
+                                            value: _newTarget == 'SCHOOL' && _newAutoAssignOnPublish,
+                                            onChanged: _newTarget == 'SCHOOL' ? (v) => setState(() => _newAutoAssignOnPublish = v) : null,
+                                          ),
+                                          const SizedBox(height: 8),
+                                          FilledButton(onPressed: _createChecklist, child: const Text('Create checklist')),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
                                 ],
-                                onChanged: (v) => setState(() => _newTarget = v ?? 'SCHOOL'),
                               ),
-                              DropdownButtonFormField<String>(
-                                initialValue: _newPurpose,
-                                decoration: const InputDecoration(labelText: 'Purpose'),
-                                items: const [
-                                  DropdownMenuItem(value: 'CLINICAL_SUPERVISION', child: Text('Clinical')),
-                                  DropdownMenuItem(value: 'ADMINISTRATIVE_SUPERVISION', child: Text('Administrative')),
+                            ),
+                            RefreshIndicator(
+                              onRefresh: _load,
+                              child: ListView(
+                                padding: const EdgeInsets.all(12),
+                                children: [
+                                  Text('Published checklists', style: Theme.of(context).textTheme.titleSmall),
+                                  const SizedBox(height: 8),
+                                  ..._checklists.map((c) {
+                                    final m = c as Map<String, dynamic>;
+                                    final id = m['id']?.toString() ?? '';
+                                    final disabled = m['activeVersion'] == null;
+                                    final target = m['targetType']?.toString() ?? '';
+                                    final autoLine = (target == 'SCHOOL' || target == 'DIRECTOR')
+                                        ? (m['autoAssignOnPublish'] != false ? 'Auto-assign: on' : 'Auto-assign: off')
+                                        : 'Auto-assign: —';
+                                    final gradesLine = _checklistGradesSummary(m);
+                                    return Card(
+                                      child: ExpansionTile(
+                                        title: Text(m['title']?.toString() ?? ''),
+                                        subtitle: Text(
+                                          '$target · ${m['purpose'] ?? ''} · v${m['activeVersion'] ?? '—'}\n$gradesLine\n$autoLine',
+                                        ),
+                                        children: [
+                                          ListTile(
+                                            leading: const Icon(Icons.edit_note),
+                                            title: const Text('Edit items'),
+                                            onTap: () {
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (_) => ChecklistItemsAdminScreen(initialChecklistId: id),
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                          ListTile(
+                                            leading: const Icon(Icons.edit_outlined),
+                                            title: const Text('Edit details'),
+                                            onTap: () => _editChecklist(m),
+                                          ),
+                                          ListTile(
+                                            leading: Icon(disabled ? Icons.play_circle_outline : Icons.pause_circle_outline),
+                                            title: Text(disabled ? 'Enable' : 'Disable'),
+                                            onTap: () => _toggle(id, disabled),
+                                          ),
+                                          ListTile(
+                                            leading: const Icon(Icons.delete_outline),
+                                            title: const Text('Delete'),
+                                            onTap: () => _deleteChecklist(id),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }),
                                 ],
-                                onChanged: (v) => setState(() => _newPurpose = v ?? 'CLINICAL_SUPERVISION'),
                               ),
-                              DropdownButtonFormField<String>(
-                                initialValue: _newGradeGroupId.isEmpty ? null : _newGradeGroupId,
-                                decoration: const InputDecoration(labelText: 'Grade group'),
-                                items: _gradeGroups
-                                    .map((g) {
-                                      final m = g as Map<String, dynamic>;
-                                      return DropdownMenuItem(
-                                        value: m['id']?.toString(),
-                                        child: Text(_gradeGroupMenuLabel(m)),
-                                      );
-                                    })
-                                    .toList(),
-                                onChanged: (v) => setState(() => _newGradeGroupId = v ?? ''),
-                              ),
-                              SwitchListTile(
-                                contentPadding: EdgeInsets.zero,
-                                title: const Text('Auto-assign when published'),
-                                subtitle: const Text('Assigns supervisors to matching schools (school target only)'),
-                                value: _newTarget == 'SCHOOL' && _newAutoAssignOnPublish,
-                                onChanged: _newTarget == 'SCHOOL' ? (v) => setState(() => _newAutoAssignOnPublish = v) : null,
-                              ),
-                              const SizedBox(height: 8),
-                              FilledButton(onPressed: _createChecklist, child: const Text('Create checklist')),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Text('Published checklists', style: Theme.of(context).textTheme.titleSmall),
-                      const SizedBox(height: 8),
-                      ..._checklists.map((c) {
-                        final m = c as Map<String, dynamic>;
-                        final id = m['id']?.toString() ?? '';
-                        final disabled = m['activeVersion'] == null;
-                        final target = m['targetType']?.toString() ?? '';
-                        final autoLine = (target == 'SCHOOL' || target == 'DIRECTOR')
-                            ? (m['autoAssignOnPublish'] != false ? 'Auto-assign: on' : 'Auto-assign: off')
-                            : 'Auto-assign: —';
-                        final gradesLine = _checklistGradesSummary(m);
-                        return Card(
-                          child: ExpansionTile(
-                            title: Text(m['title']?.toString() ?? ''),
-                            subtitle: Text(
-                              '$target · ${m['purpose'] ?? ''} · v${m['activeVersion'] ?? '—'}\n$gradesLine\n$autoLine',
-                            ),
-                            children: [
-                              ListTile(
-                                leading: const Icon(Icons.edit_note),
-                                title: const Text('Edit items'),
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => ChecklistItemsAdminScreen(initialChecklistId: id),
-                                    ),
-                                  );
-                                },
-                              ),
-                              ListTile(
-                                leading: const Icon(Icons.edit_outlined),
-                                title: const Text('Edit details'),
-                                onTap: () => _editChecklist(m),
-                              ),
-                              ListTile(
-                                leading: Icon(disabled ? Icons.play_circle_outline : Icons.pause_circle_outline),
-                                title: Text(disabled ? 'Enable' : 'Disable'),
-                                onTap: () => _toggle(id, disabled),
-                              ),
-                              ListTile(
-                                leading: const Icon(Icons.delete_outline),
-                                title: const Text('Delete'),
-                                onTap: () => _deleteChecklist(id),
-                              ),
-                            ],
-                          ),
-                        );
-                      }),
                     ],
                   ),
                 ),

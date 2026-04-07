@@ -208,6 +208,12 @@ public class DemoDataInitializer implements ApplicationRunner {
                 teacher.setName(linkedUser.getFullName() + " - " + (j + 1));
                 String subjName = subjects[(teacherIndex + j) % subjects.length];
                 teacher.setSubjectId(ensureSubject(subjName).getId());
+                String gg = school.getSupportedGradeCodesJson();
+                if (gg == null || gg.isBlank() || "[]".equals(gg.trim())) {
+                    teacher.setResponsibleGradeCodesJson("[\"1\",\"2\",\"3\",\"4\",\"5\"]");
+                } else {
+                    teacher.setResponsibleGradeCodesJson(gg);
+                }
                 teacherRepository.save(teacher);
             }
             teacherIndex++;

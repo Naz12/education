@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../core/auth/session_store.dart';
+import '../../core/grades/grade_codes.dart';
 import '../../core/network/api_client.dart';
+import '../../core/widgets/grade_code_picker.dart';
 
 class SchoolStuffScreen extends StatefulWidget {
   const SchoolStuffScreen({super.key});
@@ -52,6 +54,28 @@ class _SchoolStuffScreenState extends State<SchoolStuffScreen> {
     return null;
   }
 
+  Map<String, dynamic>? _schoolById(String? id) {
+    if (id == null || id.isEmpty) return null;
+    for (final s in _schools) {
+      final m = s as Map<String, dynamic>;
+      if (m['id']?.toString() == id) return m;
+    }
+    return null;
+  }
+
+  List<String> _gradeChoicesForSchool(Map<String, dynamic>? school) {
+    if (school == null) return List<String>.from(GradeCodes.ordered);
+    final parsed = GradeCodes.parseList(school['supportedGradeCodes']);
+    if (parsed.isEmpty) return List<String>.from(GradeCodes.ordered);
+    return parsed;
+  }
+
+  String _gradesSummary(dynamic raw) {
+    final list = GradeCodes.parseList(raw);
+    if (list.isEmpty) return '—';
+    return list.map(GradeCodes.displayLabel).join(', ');
+  }
+
   Future<void> _addType() async {
     final name = TextEditingController();
     final desc = TextEditingController();
@@ -100,6 +124,7 @@ class _SchoolStuffScreenState extends State<SchoolStuffScreen> {
     final fullName = TextEditingController();
     String? subjectIdPick;
     String? schoolPick;
+    final selectedGrades = <String>{};
     final username = TextEditingController();
     final password = TextEditingController();
     final email = TextEditingController();
@@ -168,8 +193,35 @@ class _SchoolStuffScreenState extends State<SchoolStuffScreen> {
                         );
                       }),
                     ],
-                    onChanged: (v) => setD(() => schoolPick = v),
+                    onChanged: (v) => setD(() {
+                      schoolPick = v;
+                      if (roleName == 'TEACHER') {
+                        final allowed =
+                            _gradeChoicesForSchool(_schoolById(schoolPick)).toSet();
+                        selectedGrades.removeWhere((g) => !allowed.contains(g));
+                      }
+                    }),
                   ),
+                  if (roleName == 'TEACHER') ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Grades responsible for',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    GradeCodePicker(
+                      selected: selectedGrades,
+                      codes: _gradeChoicesForSchool(_schoolById(schoolPick)),
+                      onChanged: (next) => setD(() {
+                        selectedGrades
+                          ..clear()
+                          ..addAll(next);
+                      }),
+                    ),
+                  ],
                   TextField(
                       controller: username,
                       decoration: const InputDecoration(
@@ -218,6 +270,11 @@ class _SchoolStuffScreenState extends State<SchoolStuffScreen> {
                           content: Text('Select a school')));
                       return;
                     }
+                    if (selectedGrades.isEmpty) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+                          content: Text('Select at least one grade')));
+                      return;
+                    }
                   }
                   if (roleName == 'SCHOOL_DIRECTOR' &&
                       (schoolPick == null || schoolPick!.isEmpty)) {
@@ -239,6 +296,8 @@ class _SchoolStuffScreenState extends State<SchoolStuffScreen> {
                           phone.text.trim().isEmpty ? null : phone.text.trim(),
                       'schoolId': schoolPick,
                       'subjectId': roleName == 'TEACHER' ? subjectIdPick : null,
+                      'responsibleGradeCodes':
+                          roleName == 'TEACHER' ? selectedGrades.toList() : null,
                       'city':
                           city.text.trim().isEmpty ? null : city.text.trim(),
                       'subCity': subCity.text.trim().isEmpty
@@ -274,42 +333,66 @@ class _SchoolStuffScreenState extends State<SchoolStuffScreen> {
     String subjectId = row['subjectId']?.toString() ?? '';
     String schoolId = row['schoolId']?.toString() ?? '';
     final id = row['id']?.toString() ?? '';
+    final selectedGrades = GradeCodes.parseList(row['responsibleGradeCodes']).toSet();
     await showDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setD) => AlertDialog(
           title: const Text('Edit teacher'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                  controller: name,
-                  decoration: const InputDecoration(labelText: 'Name')),
-              DropdownButtonFormField<String>(
-                initialValue: subjectId.isEmpty ? null : subjectId,
-                decoration: const InputDecoration(labelText: 'Subject'),
-                items: _subjects.map((sub) {
-                  final sm = sub as Map<String, dynamic>;
-                  return DropdownMenuItem<String>(
-                    value: sm['id']?.toString(),
-                    child: Text(sm['name']?.toString() ?? ''),
-                  );
-                }).toList(),
-                onChanged: (v) => setD(() => subjectId = v ?? ''),
-              ),
-              DropdownButtonFormField<String>(
-                initialValue: schoolId.isEmpty ? null : schoolId,
-                decoration: const InputDecoration(labelText: 'School'),
-                items: _schools.map((s) {
-                  final m = s as Map<String, dynamic>;
-                  return DropdownMenuItem(
-                    value: m['id']?.toString(),
-                    child: Text(m['name']?.toString() ?? ''),
-                  );
-                }).toList(),
-                onChanged: (v) => setD(() => schoolId = v ?? ''),
-              ),
-            ],
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                    controller: name,
+                    decoration: const InputDecoration(labelText: 'Name')),
+                DropdownButtonFormField<String>(
+                  initialValue: subjectId.isEmpty ? null : subjectId,
+                  decoration: const InputDecoration(labelText: 'Subject'),
+                  items: _subjects.map((sub) {
+                    final sm = sub as Map<String, dynamic>;
+                    return DropdownMenuItem<String>(
+                      value: sm['id']?.toString(),
+                      child: Text(sm['name']?.toString() ?? ''),
+                    );
+                  }).toList(),
+                  onChanged: (v) => setD(() => subjectId = v ?? ''),
+                ),
+                DropdownButtonFormField<String>(
+                  initialValue: schoolId.isEmpty ? null : schoolId,
+                  decoration: const InputDecoration(labelText: 'School'),
+                  items: _schools.map((s) {
+                    final m = s as Map<String, dynamic>;
+                    return DropdownMenuItem(
+                      value: m['id']?.toString(),
+                      child: Text(m['name']?.toString() ?? ''),
+                    );
+                  }).toList(),
+                  onChanged: (v) => setD(() {
+                    schoolId = v ?? '';
+                    final allowed =
+                        _gradeChoicesForSchool(_schoolById(schoolId)).toSet();
+                    selectedGrades.removeWhere((g) => !allowed.contains(g));
+                  }),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Grades responsible for',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 6),
+                GradeCodePicker(
+                  selected: selectedGrades,
+                  codes: _gradeChoicesForSchool(_schoolById(schoolId)),
+                  onChanged: (next) => setD(() {
+                    selectedGrades
+                      ..clear()
+                      ..addAll(next);
+                  }),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -323,12 +406,18 @@ class _SchoolStuffScreenState extends State<SchoolStuffScreen> {
                           content: Text('Select school and subject')));
                   return;
                 }
+                if (selectedGrades.isEmpty) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+                      content: Text('Select at least one grade')));
+                  return;
+                }
                 try {
                   await ApiClient.patchTeacher(
                     teacherId: id,
                     name: name.text.trim(),
                     subjectId: subjectId,
                     schoolId: schoolId,
+                    responsibleGradeCodes: selectedGrades.toList(),
                   );
                   if (ctx.mounted) Navigator.pop(ctx);
                   await _load();
@@ -889,12 +978,13 @@ class _SchoolStuffScreenState extends State<SchoolStuffScreen> {
                           itemBuilder: (context, i) {
                             final m = _filteredItems[i] as Map<String, dynamic>;
                             final type = m['type']?.toString() ?? '';
+                            final subLines = type == 'TEACHER'
+                                ? '$type · ${m['schoolName'] ?? ''} · ${m['subject'] ?? ''}\nGrades: ${_gradesSummary(m['responsibleGradeCodes'])}'
+                                : '$type · ${m['schoolName'] ?? ''} · ${m['subject'] ?? ''}';
                             return Card(
                               child: ListTile(
                                 title: Text(m['fullName']?.toString() ?? ''),
-                                subtitle: Text(
-                                  '$type · ${m['schoolName'] ?? ''} · ${m['subject'] ?? ''}',
-                                ),
+                                subtitle: Text(subLines),
                                 trailing: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [

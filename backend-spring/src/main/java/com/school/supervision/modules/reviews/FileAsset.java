@@ -60,4 +60,8 @@ public class FileAsset extends TenantScopedEntity {
     public String getPublicUrl() {
         return publicUrl;
     }
+
+    public String getStorageKey() {
+        return storageKey;
+    }
 }

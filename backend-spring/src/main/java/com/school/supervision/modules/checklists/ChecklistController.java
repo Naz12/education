@@ -62,6 +62,7 @@ public class ChecklistController {
             String gradesDescription,
             Integer activeVersion,
             boolean autoAssignOnPublish,
+            java.time.Instant autoAssignDueAt,
             List<String> gradeGroupGradeCodes
     ) {}
     public record ChecklistVersionSummary(UUID id, Integer versionNo, String status) {}
@@ -105,6 +106,7 @@ public class ChecklistController {
                             gg != null ? gg.getGradesDescription() : c.getGradeScope(),
                             c.getActiveVersion(),
                             c.isAutoAssignOnPublish(),
+                            c.getAutoAssignDueAt(),
                             ggc);
                 })
                 .toList();

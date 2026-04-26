@@ -113,7 +113,7 @@ public class AssignmentAutoAssignmentService {
                     organizationId, checklist.getId(), school.getId(), OPEN)) {
                 continue;
             }
-            User supervisor = pickSupervisor(supervisors, school, checklist, organizationId);
+            User supervisor = pickSupervisor(supervisors, school, checklist, organizationId, null);
             if (supervisor == null) {
                 continue;
             }
@@ -126,7 +126,7 @@ public class AssignmentAutoAssignmentService {
             a.setSchoolId(school.getId());
             a.setTeacherId(null);
             a.setStaffUserId(null);
-            a.setDueDate(null);
+            a.setDueDate(checklist.getAutoAssignDueAt());
             a.setStatus(AssignmentStatus.PENDING);
             a.setCreatedBy(actorUserId);
             assignmentRepository.save(a);
@@ -172,44 +172,52 @@ public class AssignmentAutoAssignmentService {
             for (Teacher teacher : teachers) {
                 Set<String> teacherGrades = GradeCodes.normalize(
                         GradeCodes.parseJsonArray(objectMapper, teacher.getResponsibleGradeCodesJson()));
-                if (!teacherGrades.isEmpty() && !GradeCodes.overlaps(visitScope, teacherGrades)) {
+                if (teacherGrades.isEmpty()) {
                     continue;
                 }
-                if (assignmentRepository.existsByOrganizationIdAndChecklistIdAndSchoolIdAndTeacherIdAndStatusIn(
-                        organizationId, checklist.getId(), school.getId(), teacher.getId(), OPEN)) {
-                    continue;
+                List<String> matchedGrades = GradeCodes.ORDERED.stream()
+                        .filter(teacherGrades::contains)
+                        .filter(visitScope::contains)
+                        .toList();
+                for (String targetGradeCode : matchedGrades) {
+                    if (assignmentRepository.existsByOrganizationIdAndChecklistIdAndSchoolIdAndTeacherIdAndTargetGradeCodeAndStatusIn(
+                            organizationId, checklist.getId(), school.getId(), teacher.getId(), targetGradeCode, OPEN)) {
+                        continue;
+                    }
+                    User supervisor = pickSupervisor(supervisors, school, checklist, organizationId, targetGradeCode);
+                    if (supervisor == null) {
+                        continue;
+                    }
+                    Assignment a = new Assignment();
+                    a.setOrganizationId(organizationId);
+                    a.setChecklistId(checklist.getId());
+                    a.setChecklistVersionId(publishedVersionId);
+                    a.setSupervisorId(supervisor.getId());
+                    a.setTargetType(TargetType.TEACHER);
+                    a.setSchoolId(school.getId());
+                    a.setTeacherId(teacher.getId());
+                    a.setTargetGradeCode(targetGradeCode);
+                    a.setStaffUserId(null);
+                    a.setDueDate(checklist.getAutoAssignDueAt());
+                    a.setStatus(AssignmentStatus.PENDING);
+                    a.setCreatedBy(actorUserId);
+                    assignmentRepository.save(a);
+                    created++;
+                    auditService.record(
+                            organizationId,
+                            actorUserId,
+                            "ASSIGNMENT_AUTO_CREATED",
+                            "ASSIGNMENT",
+                            a.getId(),
+                            java.util.Map.of(
+                                    "checklistId", checklist.getId().toString(),
+                                    "schoolId", school.getId().toString(),
+                                    "teacherId", teacher.getId().toString(),
+                                    "targetGradeCode", targetGradeCode,
+                                    "supervisorId", supervisor.getId().toString()
+                            )
+                    );
                 }
-                User supervisor = pickSupervisor(supervisors, school, checklist, organizationId);
-                if (supervisor == null) {
-                    continue;
-                }
-                Assignment a = new Assignment();
-                a.setOrganizationId(organizationId);
-                a.setChecklistId(checklist.getId());
-                a.setChecklistVersionId(publishedVersionId);
-                a.setSupervisorId(supervisor.getId());
-                a.setTargetType(TargetType.TEACHER);
-                a.setSchoolId(school.getId());
-                a.setTeacherId(teacher.getId());
-                a.setStaffUserId(null);
-                a.setDueDate(null);
-                a.setStatus(AssignmentStatus.PENDING);
-                a.setCreatedBy(actorUserId);
-                assignmentRepository.save(a);
-                created++;
-                auditService.record(
-                        organizationId,
-                        actorUserId,
-                        "ASSIGNMENT_AUTO_CREATED",
-                        "ASSIGNMENT",
-                        a.getId(),
-                        java.util.Map.of(
-                                "checklistId", checklist.getId().toString(),
-                                "schoolId", school.getId().toString(),
-                                "teacherId", teacher.getId().toString(),
-                                "supervisorId", supervisor.getId().toString()
-                        )
-                );
             }
         }
         return created;
@@ -229,11 +237,13 @@ public class AssignmentAutoAssignmentService {
         return userRepository.findSupervisorsInOrganization(organizationId);
     }
 
-    private User pickSupervisor(List<User> supervisors, School school, Checklist checklist, UUID organizationId) {
+    private User pickSupervisor(List<User> supervisors, School school, Checklist checklist, UUID organizationId, String targetGradeCode) {
         java.util.Set<String> scope = AssignmentGradeScope.resolve(objectMapper, school, checklist, gradeGroupRepository);
         List<User> eligible = supervisors.stream()
                 .filter(u -> scope.isEmpty()
                         || GradeCodes.overlaps(u.effectiveSupervisedGrades(objectMapper), scope))
+                .filter(u -> targetGradeCode == null || targetGradeCode.isBlank()
+                        || u.effectiveSupervisedGrades(objectMapper).contains(targetGradeCode))
                 .toList();
         if (eligible.isEmpty()) {
             return null;

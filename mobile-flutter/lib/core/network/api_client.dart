@@ -320,6 +320,38 @@ class ApiClient {
     await _dio.delete('/schools/$schoolId', options: _authOptions());
   }
 
+  static Future<List<int>> downloadBytes(String path) async {
+    final response = await _dio.get<List<int>>(
+      path,
+      options: _authOptions(responseType: ResponseType.bytes),
+    );
+    return response.data ?? <int>[];
+  }
+
+  static Future<Map<String, dynamic>> uploadWorkbook(
+    String path, {
+    required String filename,
+    required Uint8List bytes,
+  }) async {
+    final data = FormData.fromMap({
+      'file': MultipartFile.fromBytes(
+        bytes,
+        filename: filename,
+        contentType: DioMediaType.parse(
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
+      ),
+    });
+    final response = await _dio.post(
+      path,
+      data: data,
+      options: _authOptions(),
+    );
+    if (response.data is Map) {
+      return Map<String, dynamic>.from(response.data as Map);
+    }
+    return {'created': 0, 'failed': 0, 'errors': []};
+  }
+
   // --- Teachers (assignments + school stuff teacher edits) ---
 
   static Future<List<dynamic>> fetchTeachers() async {
@@ -434,6 +466,37 @@ class ApiClient {
         options: _authOptions());
   }
 
+  static Future<List<int>> downloadSchoolsTemplate() =>
+      downloadBytes('/schools/template');
+  static Future<List<int>> downloadSchoolsExport({String? q}) => downloadBytes(
+      (q == null || q.trim().isEmpty)
+          ? '/schools/export'
+          : '/schools/export?q=${Uri.encodeQueryComponent(q.trim())}');
+  static Future<Map<String, dynamic>> importSchools({
+    required String filename,
+    required Uint8List bytes,
+  }) =>
+      uploadWorkbook('/schools/import', filename: filename, bytes: bytes);
+
+  static Future<List<int>> downloadSchoolStuffTemplate() =>
+      downloadBytes('/school-stuff/template');
+  static Future<List<int>> downloadSchoolStuffExport() =>
+      downloadBytes('/school-stuff/export');
+  static Future<Map<String, dynamic>> importSchoolStuff({
+    required String filename,
+    required Uint8List bytes,
+  }) =>
+      uploadWorkbook('/school-stuff/import', filename: filename, bytes: bytes);
+
+  static Future<List<int>> downloadUsersTemplate() =>
+      downloadBytes('/users/template');
+  static Future<List<int>> downloadUsersExport() => downloadBytes('/users/export');
+  static Future<Map<String, dynamic>> importUsers({
+    required String filename,
+    required Uint8List bytes,
+  }) =>
+      uploadWorkbook('/users/import', filename: filename, bytes: bytes);
+
   // --- Checklists ---
 
   static Future<List<dynamic>> fetchChecklists() async {
@@ -463,6 +526,7 @@ class ApiClient {
     required String purposeOptionId,
     required String gradeGroupId,
     bool autoAssignOnPublish = true,
+    String? autoAssignDueAt,
   }) async {
     final response = await _dio.post(
       '/checklists',
@@ -472,6 +536,7 @@ class ApiClient {
         'purposeOptionId': purposeOptionId,
         'gradeGroupId': gradeGroupId,
         'autoAssignOnPublish': autoAssignOnPublish,
+        'autoAssignDueAt': autoAssignDueAt,
       },
       options: _authOptions(),
     );
@@ -496,6 +561,7 @@ class ApiClient {
     required String purposeOptionId,
     required String gradeGroupId,
     required bool autoAssignOnPublish,
+    String? autoAssignDueAt,
   }) async {
     await _dio.patch(
       '/checklists/$checklistId',
@@ -505,6 +571,7 @@ class ApiClient {
         'purposeOptionId': purposeOptionId,
         'gradeGroupId': gradeGroupId,
         'autoAssignOnPublish': autoAssignOnPublish,
+        'autoAssignDueAt': autoAssignDueAt,
       },
       options: _authOptions(),
     );
@@ -624,6 +691,19 @@ class ApiClient {
     await _dio.delete('/assignments/$assignmentId', options: _authOptions());
   }
 
+  static Future<Map<String, dynamic>> bulkCreateAssignments(
+      Map<String, dynamic> body) async {
+    final response = await _dio.post('/assignments/bulk-create',
+        data: body, options: _authOptions());
+    if (response.data is Map) {
+      return Map<String, dynamic>.from(response.data as Map);
+    }
+    return {};
+  }
+
+  static Future<List<int>> downloadAssignmentsExport() =>
+      downloadBytes('/assignments/export');
+
   // --- Supervision activity ---
 
   static Future<List<dynamic>> fetchSupervisorSummaries() async {
@@ -639,6 +719,9 @@ class ApiClient {
         options: _authOptions());
     return response.data as List<dynamic>;
   }
+
+  static Future<List<int>> downloadActivityExport() =>
+      downloadBytes('/supervision/export');
 
   // --- Reports ---
 

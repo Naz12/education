@@ -149,6 +149,8 @@ public class ChecklistService {
         if (request.autoAssignOnPublish() != null) {
             checklist.setAutoAssignOnPublish(request.autoAssignOnPublish());
         }
+        checklist.setAutoAssignDueAt(request.autoAssignDueAt());
+        validateAutoAssignDueAt(checklist.getTargetType(), checklist.isAutoAssignOnPublish(), checklist.getAutoAssignDueAt());
 
         // Force republish after metadata changes (title/target/purpose/grade scope).
         checklist.setActiveVersion(null);
@@ -380,6 +382,17 @@ public class ChecklistService {
         checklist.setCreatedBy(actorUserId);
         boolean auto = request.autoAssignOnPublish() == null || Boolean.TRUE.equals(request.autoAssignOnPublish());
         checklist.setAutoAssignOnPublish(auto);
+        checklist.setAutoAssignDueAt(request.autoAssignDueAt());
+        validateAutoAssignDueAt(checklist.getTargetType(), checklist.isAutoAssignOnPublish(), checklist.getAutoAssignDueAt());
+    }
+
+    private void validateAutoAssignDueAt(DomainEnums.TargetType targetType, boolean autoAssignOnPublish, java.time.Instant autoAssignDueAt) {
+        boolean autoAssignableTarget = targetType == DomainEnums.TargetType.SCHOOL
+                || targetType == DomainEnums.TargetType.DIRECTOR
+                || targetType == DomainEnums.TargetType.TEACHER;
+        if (autoAssignableTarget && autoAssignOnPublish && autoAssignDueAt == null) {
+            throw new IllegalArgumentException("autoAssignDueAt is required when auto-assign on publish is enabled");
+        }
     }
 
     private void assertGradeGroupInCoordinatorScope(GradeGroup gradeGroup, UUID coordinatorUserId) {

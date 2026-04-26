@@ -24,6 +24,9 @@ public class Assignment extends TenantScopedEntity {
     private UUID schoolId;
     @Column(name = "teacher_id")
     private UUID teacherId;
+    /** Grade code for teacher-targeted evaluations (KG1...12). Null for non-teacher targets. */
+    @Column(name = "target_grade_code")
+    private String targetGradeCode;
     /** User id for non-teacher school roles (registrar, counselor, etc.); not used for DIRECTOR (use school only). */
     @Column(name = "staff_user_id")
     private UUID staffUserId;
@@ -73,6 +76,14 @@ public class Assignment extends TenantScopedEntity {
 
     public void setStaffUserId(UUID staffUserId) {
         this.staffUserId = staffUserId;
+    }
+
+    public String getTargetGradeCode() {
+        return targetGradeCode;
+    }
+
+    public void setTargetGradeCode(String targetGradeCode) {
+        this.targetGradeCode = targetGradeCode;
     }
 
     public UUID getSupervisorId() {

@@ -4,18 +4,20 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.school.supervision.common.grades.GradeCodes;
 import com.school.supervision.common.tenant.TenantContext;
+import com.school.supervision.modules.importexport.ExcelWorkbookService;
 import com.school.supervision.modules.assignments.Assignment;
 import com.school.supervision.modules.assignments.AssignmentRepository;
 import com.school.supervision.modules.reports.AuditService;
 import com.school.supervision.modules.users.User;
 import com.school.supervision.modules.users.UserRepository;
-import com.school.supervision.modules.organization.TeacherRepository;
-import com.school.supervision.modules.organization.Teacher;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,8 +26,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -39,19 +45,22 @@ public class SchoolController {
     private final AssignmentRepository assignmentRepository;
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
+    private final ExcelWorkbookService excelWorkbookService;
 
     public SchoolController(SchoolRepository schoolRepository,
                              UserRepository userRepository,
                              TeacherRepository teacherRepository,
                              AssignmentRepository assignmentRepository,
                              AuditService auditService,
-                             ObjectMapper objectMapper) {
+                             ObjectMapper objectMapper,
+                             ExcelWorkbookService excelWorkbookService) {
         this.schoolRepository = schoolRepository;
         this.userRepository = userRepository;
         this.teacherRepository = teacherRepository;
         this.assignmentRepository = assignmentRepository;
         this.auditService = auditService;
         this.objectMapper = objectMapper;
+        this.excelWorkbookService = excelWorkbookService;
     }
 
     public record SchoolSummary(UUID id, String name, double latitude, double longitude, int allowedRadiusInMeters, List<String> supportedGradeCodes) {}
@@ -72,6 +81,8 @@ public class SchoolController {
             /** When non-null, replaces supported grades. Omit to leave unchanged. */
             List<String> supportedGradeCodes
     ) {}
+
+    public record BulkImportResult(int created, int skipped, int failed, List<Map<String, String>> errors) {}
 
     @GetMapping
     public List<SchoolSummary> list(Authentication authentication, @RequestParam(required = false) String q) {
@@ -131,6 +142,73 @@ public class SchoolController {
                 java.util.Map.of("name", request.name())
         );
         return id;
+    }
+
+    @GetMapping("/template")
+    public ResponseEntity<byte[]> template(Authentication authentication) {
+        User current = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(current);
+        List<String> headers = List.of("name", "latitude", "longitude", "allowedRadiusInMeters", "supportedGradeCodes");
+        List<List<String>> sample = List.of(List.of("Sample School", "9.03", "38.74", "150", "KG1,KG2,1,2"));
+        List<String> notes = List.of(
+                "name, latitude, longitude are required.",
+                "allowedRadiusInMeters is optional (defaults to 150).",
+                "supportedGradeCodes is comma-separated canonical grades: KG1,KG2,KG3,1..12."
+        );
+        byte[] bytes = excelWorkbookService.buildTemplate("schools", headers, sample, notes);
+        return xlsxAttachment("schools-template.xlsx", bytes);
+    }
+
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> export(Authentication authentication, @RequestParam(required = false) String q) {
+        List<SchoolSummary> schools = list(authentication, q);
+        List<String> headers = List.of("id", "name", "latitude", "longitude", "allowedRadiusInMeters", "supportedGradeCodes");
+        List<List<String>> rows = schools.stream().map(s -> List.of(
+                s.id().toString(),
+                s.name(),
+                String.valueOf(s.latitude()),
+                String.valueOf(s.longitude()),
+                String.valueOf(s.allowedRadiusInMeters()),
+                String.join(",", s.supportedGradeCodes() == null ? List.of() : s.supportedGradeCodes())
+        )).toList();
+        byte[] bytes = excelWorkbookService.buildExport("schools", headers, rows);
+        return xlsxAttachment("schools-export-" + LocalDate.now() + ".xlsx", bytes);
+    }
+
+    @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public BulkImportResult bulkImport(Authentication authentication, @RequestParam("file") MultipartFile file) {
+        User current = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(current);
+        List<Map<String, String>> rows = excelWorkbookService.parseRows(file);
+        int created = 0;
+        int skipped = 0;
+        List<Map<String, String>> errors = new ArrayList<>();
+        for (Map<String, String> row : rows) {
+            String rowNum = row.getOrDefault("__rowNum", "?");
+            try {
+                String schoolName = required(row, "name");
+                if (schoolRepository.existsByOrganizationIdAndNameIgnoreCase(requireTenant(), schoolName)) {
+                    skipped++;
+                    continue;
+                }
+                CreateSchoolRequest req = new CreateSchoolRequest(
+                        schoolName,
+                        Double.valueOf(required(row, "latitude")),
+                        Double.valueOf(required(row, "longitude")),
+                        optionalInteger(row.get("allowedRadiusInMeters")),
+                        splitCsv(row.getOrDefault("supportedGradeCodes", ""))
+                );
+                create(authentication, req);
+                created++;
+            } catch (Exception e) {
+                errors.add(Map.of(
+                        "row", rowNum,
+                        "field", inferFieldFromMessage(e.getMessage()),
+                        "message", safeMessage(e)
+                ));
+            }
+        }
+        return new BulkImportResult(created, skipped, errors.size(), errors);
     }
 
     @PatchMapping("/{schoolId}")
@@ -239,5 +317,48 @@ public class SchoolController {
     private void writeSupportedGrades(School school, List<String> raw) throws JsonProcessingException {
         Set<String> norm = raw == null ? Set.of() : GradeCodes.normalize(raw);
         school.setSupportedGradeCodesJson(objectMapper.writeValueAsString(GradeCodes.sortForDisplay(norm)));
+    }
+
+    private ResponseEntity<byte[]> xlsxAttachment(String filename, byte[] content) {
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .body(content);
+    }
+
+    private String required(Map<String, String> row, String field) {
+        String value = row.getOrDefault(field, "").trim();
+        if (value.isEmpty()) {
+            throw new IllegalArgumentException(field + " is required");
+        }
+        return value;
+    }
+
+    private Integer optionalInteger(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        return Integer.valueOf(raw.trim());
+    }
+
+    private List<String> splitCsv(String csv) {
+        if (csv == null || csv.isBlank()) return List.of();
+        return java.util.Arrays.stream(csv.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .toList();
+    }
+
+    private String inferFieldFromMessage(String msg) {
+        if (msg == null) return "row";
+        String normalized = msg.toLowerCase();
+        if (normalized.contains("name")) return "name";
+        if (normalized.contains("latitude")) return "latitude";
+        if (normalized.contains("longitude")) return "longitude";
+        if (normalized.contains("radius")) return "allowedRadiusInMeters";
+        if (normalized.contains("grade")) return "supportedGradeCodes";
+        return "row";
+    }
+
+    private String safeMessage(Exception e) {
+        return (e.getMessage() == null || e.getMessage().isBlank()) ? "Invalid row data" : e.getMessage();
     }
 }

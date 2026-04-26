@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:open_file/open_file.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
 import '../../core/grades/grade_codes.dart';
 import '../../core/network/api_client.dart';
 
@@ -26,9 +29,15 @@ class _AssignmentsAdminScreenState extends State<AssignmentsAdminScreen> {
   String _targetType = 'SCHOOL';
   String _schoolId = '';
   String _teacherId = '';
+  String _targetGradeCode = '';
   String _staffUserId = '';
   String _dueLocal = '';
   String? _editingId;
+  String _bulkChecklistId = '';
+  String _bulkVersionId = '';
+  final Set<String> _bulkSchoolIds = <String>{};
+  final Set<String> _bulkSupervisorIds = <String>{};
+  String _bulkDueLocal = '';
 
   @override
   void initState() {
@@ -90,6 +99,7 @@ class _AssignmentsAdminScreenState extends State<AssignmentsAdminScreen> {
       _targetType = 'SCHOOL';
       _schoolId = '';
       _teacherId = '';
+      _targetGradeCode = '';
       _staffUserId = '';
       _dueLocal = '';
     } else {
@@ -100,6 +110,7 @@ class _AssignmentsAdminScreenState extends State<AssignmentsAdminScreen> {
       _targetType = row['targetType']?.toString() ?? 'SCHOOL';
       _schoolId = row['schoolId']?.toString() ?? '';
       _teacherId = row['teacherId']?.toString() ?? '';
+      _targetGradeCode = row['targetGradeCode']?.toString() ?? '';
       _staffUserId = row['staffUserId']?.toString() ?? '';
       final due = row['dueDate']?.toString();
       _dueLocal = _toLocalDatetime(due);
@@ -231,6 +242,15 @@ class _AssignmentsAdminScreenState extends State<AssignmentsAdminScreen> {
                           .toList(),
                       onChanged: (v) => setModal(() => _teacherId = v ?? ''),
                     ),
+                  if (_targetType == 'TEACHER')
+                    DropdownButtonFormField<String>(
+                      initialValue: _targetGradeCode.isEmpty ? null : _targetGradeCode,
+                      decoration: const InputDecoration(labelText: 'Target grade'),
+                      items: GradeCodes.ordered
+                          .map((g) => DropdownMenuItem(value: g, child: Text(g)))
+                          .toList(),
+                      onChanged: (v) => setModal(() => _targetGradeCode = v ?? ''),
+                    ),
                   if (_targetType == 'SCHOOL_STAFF')
                     DropdownButtonFormField<String>(
                       initialValue: _staffUserId.isEmpty ? null : _staffUserId,
@@ -261,6 +281,7 @@ class _AssignmentsAdminScreenState extends State<AssignmentsAdminScreen> {
                       if (_formChecklistId.isEmpty || _formVersionId.isEmpty || _formSupervisorId.isEmpty) return;
                       if (_assignmentNeedsSchool(_targetType) && _schoolId.isEmpty) return;
                       if (_targetType == 'TEACHER' && _teacherId.isEmpty) return;
+                      if (_targetType == 'TEACHER' && _targetGradeCode.isEmpty) return;
                       if (_targetType == 'SCHOOL_STAFF' && _staffUserId.isEmpty) return;
                       final payload = <String, dynamic>{
                         'checklistId': _formChecklistId,
@@ -269,6 +290,7 @@ class _AssignmentsAdminScreenState extends State<AssignmentsAdminScreen> {
                         'targetType': _targetType,
                         'schoolId': _assignmentNeedsSchool(_targetType) ? _schoolId : null,
                         'teacherId': _targetType == 'TEACHER' ? _teacherId : null,
+                        'targetGradeCode': _targetType == 'TEACHER' ? _targetGradeCode : null,
                         'staffUserId': _targetType == 'SCHOOL_STAFF' ? _staffUserId : null,
                         'dueDate': dueCtrl.text.trim().isEmpty
                             ? null
@@ -333,6 +355,170 @@ class _AssignmentsAdminScreenState extends State<AssignmentsAdminScreen> {
     }
   }
 
+  Future<void> _openBulkCreate() async {
+    _bulkChecklistId = '';
+    _bulkVersionId = '';
+    _bulkSchoolIds.clear();
+    _bulkSupervisorIds.clear();
+    _bulkDueLocal = '';
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 16,
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+        ),
+        child: StatefulBuilder(
+          builder: (context, setModal) {
+            return SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('Bulk create assignments',
+                      style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: _bulkChecklistId.isEmpty ? null : _bulkChecklistId,
+                    decoration: const InputDecoration(labelText: 'Checklist'),
+                    items: _checklists.map((c) {
+                      final m = c as Map<String, dynamic>;
+                      return DropdownMenuItem(
+                        value: m['id']?.toString(),
+                        child: Text(m['title']?.toString() ?? ''),
+                      );
+                    }).toList(),
+                    onChanged: (v) async {
+                      setModal(() {
+                        _bulkChecklistId = v ?? '';
+                        _bulkVersionId = '';
+                      });
+                      await _loadVersions(_bulkChecklistId);
+                      setModal(() {});
+                    },
+                  ),
+                  DropdownButtonFormField<String>(
+                    initialValue: _bulkVersionId.isEmpty ? null : _bulkVersionId,
+                    decoration: const InputDecoration(labelText: 'Version'),
+                    items: _versions.map((c) {
+                      final m = c as Map<String, dynamic>;
+                      return DropdownMenuItem(
+                        value: m['id']?.toString(),
+                        child: Text('v${m['versionNo']} (${m['status']})'),
+                      );
+                    }).toList(),
+                    onChanged: (v) => setModal(() => _bulkVersionId = v ?? ''),
+                  ),
+                  const SizedBox(height: 8),
+                  Text('Schools (optional)',
+                      style: Theme.of(context).textTheme.titleSmall),
+                  ..._schools.map((s) {
+                    final m = s as Map<String, dynamic>;
+                    final id = m['id']?.toString() ?? '';
+                    final checked = _bulkSchoolIds.contains(id);
+                    return CheckboxListTile(
+                      dense: true,
+                      value: checked,
+                      title: Text(m['name']?.toString() ?? ''),
+                      onChanged: (v) => setModal(() {
+                        if (v == true) _bulkSchoolIds.add(id);
+                        if (v == false) _bulkSchoolIds.remove(id);
+                      }),
+                    );
+                  }),
+                  const SizedBox(height: 8),
+                  Text('Supervisors pool (optional)',
+                      style: Theme.of(context).textTheme.titleSmall),
+                  ..._supervisors.map((u) {
+                    final m = u as Map<String, dynamic>;
+                    final id = m['id']?.toString() ?? '';
+                    final checked = _bulkSupervisorIds.contains(id);
+                    return CheckboxListTile(
+                      dense: true,
+                      value: checked,
+                      title: Text(m['fullName']?.toString() ?? ''),
+                      onChanged: (v) => setModal(() {
+                        if (v == true) _bulkSupervisorIds.add(id);
+                        if (v == false) _bulkSupervisorIds.remove(id);
+                      }),
+                    );
+                  }),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Grades follow the checklist grade group; matching uses each school as before.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    initialValue: _bulkDueLocal,
+                    decoration: const InputDecoration(
+                        labelText: 'Due override (datetime-local)'),
+                    onChanged: (v) => _bulkDueLocal = v,
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: () async {
+                      if (_bulkChecklistId.isEmpty || _bulkVersionId.isEmpty) return;
+                      try {
+                        final result = await ApiClient.bulkCreateAssignments({
+                          'checklistId': _bulkChecklistId,
+                          'checklistVersionId': _bulkVersionId,
+                          'schoolIds': _bulkSchoolIds.toList(),
+                          'supervisorIds': _bulkSupervisorIds.toList(),
+                          'dueDate': _bulkDueLocal.trim().isEmpty
+                              ? null
+                              : DateTime.tryParse(_bulkDueLocal)?.toUtc().toIso8601String(),
+                        });
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        await _bootstrap();
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Bulk created ${result['created'] ?? 0}. '
+                              'Skipped duplicates: ${result['skippedDuplicate'] ?? 0}, '
+                              'no supervisor: ${result['skippedNoEligibleSupervisor'] ?? 0}, '
+                              'out of scope: ${result['skippedOutOfScope'] ?? 0}.',
+                            ),
+                          ),
+                        );
+                      } catch (e) {
+                        if (ctx.mounted) {
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                              SnackBar(content: Text(ApiClient.messageFromError(e))));
+                        }
+                      }
+                    },
+                    child: const Text('Create bulk assignments'),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _exportAssignments() async {
+    try {
+      final bytes = await ApiClient.downloadAssignmentsExport();
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/assignments-export.xlsx');
+      await file.writeAsBytes(bytes, flush: true);
+      await OpenFile.open(file.path);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(ApiClient.messageFromError(e))));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -340,6 +526,8 @@ class _AssignmentsAdminScreenState extends State<AssignmentsAdminScreen> {
         title: const Text('Assignments'),
         actions: [
           IconButton(icon: const Icon(Icons.add), onPressed: () => _openForm()),
+          IconButton(icon: const Icon(Icons.playlist_add_check_circle_outlined), tooltip: 'Bulk assign', onPressed: _openBulkCreate),
+          IconButton(icon: const Icon(Icons.download_outlined), tooltip: 'Export', onPressed: _exportAssignments),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () async {
@@ -368,7 +556,9 @@ class _AssignmentsAdminScreenState extends State<AssignmentsAdminScreen> {
                       final id = m['id']?.toString() ?? '';
                       return Card(
                         child: ListTile(
-                          title: Text('${m['targetType']} · ${m['status']}'),
+                          title: Text(
+                            '${m['targetType']}${m['targetGradeCode'] == null ? '' : ' · ${m['targetGradeCode']}'} · ${m['status']}',
+                          ),
                           subtitle: Text('Due: ${m['dueDate'] ?? '—'}'),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,

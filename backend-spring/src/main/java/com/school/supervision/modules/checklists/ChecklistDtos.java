@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.time.Instant;
 
 public final class ChecklistDtos {
     private ChecklistDtos() {}
@@ -18,7 +19,9 @@ public final class ChecklistDtos {
             @NotNull UUID purposeOptionId,
             @NotNull UUID gradeGroupId,
             /** When true (default), publishing creates school assignments for matching grades. */
-            Boolean autoAssignOnPublish
+            Boolean autoAssignOnPublish,
+            /** Required when auto-assign on publish is enabled for eligible targets. */
+            Instant autoAssignDueAt
     ) {}
 
     public record UpdateChecklistRequest(
@@ -26,7 +29,8 @@ public final class ChecklistDtos {
             @NotNull UUID targetOptionId,
             @NotNull UUID purposeOptionId,
             @NotNull UUID gradeGroupId,
-            Boolean autoAssignOnPublish
+            Boolean autoAssignOnPublish,
+            Instant autoAssignDueAt
     ) {}
 
     public record TargetOptionResponse(UUID id, String name, String routingKind) {}

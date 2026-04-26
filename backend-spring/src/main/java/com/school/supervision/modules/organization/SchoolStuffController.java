@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.school.supervision.common.grades.GradeCodes;
 import com.school.supervision.common.tenant.TenantContext;
 import com.school.supervision.modules.assignments.AssignmentRepository;
+import com.school.supervision.modules.importexport.ExcelWorkbookService;
 import com.school.supervision.modules.reports.AuditService;
 import com.school.supervision.modules.users.Role;
 import com.school.supervision.modules.users.RoleRepository;
@@ -16,9 +17,14 @@ import jakarta.validation.constraints.NotNull;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.*;
+import java.time.LocalDate;
 import java.util.stream.Collectors;
 
 @RestController
@@ -33,6 +39,7 @@ public class SchoolStuffController {
     private final AuditService auditService;
     private final AssignmentRepository assignmentRepository;
     private final ObjectMapper objectMapper;
+    private final ExcelWorkbookService excelWorkbookService;
 
     public SchoolStuffController(
             RoleRepository roleRepository,
@@ -43,7 +50,8 @@ public class SchoolStuffController {
             PasswordEncoder passwordEncoder,
             AuditService auditService,
             AssignmentRepository assignmentRepository,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            ExcelWorkbookService excelWorkbookService
     ) {
         this.roleRepository = roleRepository;
         this.userRepository = userRepository;
@@ -54,6 +62,7 @@ public class SchoolStuffController {
         this.auditService = auditService;
         this.assignmentRepository = assignmentRepository;
         this.objectMapper = objectMapper;
+        this.excelWorkbookService = excelWorkbookService;
     }
 
     private String writeTeacherResponsibleGradesJson(School school, List<String> raw) {
@@ -137,6 +146,8 @@ public class SchoolStuffController {
             String subCity,
             String wereda
     ) {}
+
+    public record BulkImportResult(int created, int skipped, int failed, List<Map<String, String>> errors) {}
 
     @GetMapping("/types")
     public List<SchoolStuffTypeSummary> listTypes(Authentication authentication) {
@@ -490,6 +501,127 @@ public class SchoolStuffController {
         // Stable order: type then name.
         result.sort(Comparator.comparing(SchoolStuffSummary::type).thenComparing(SchoolStuffSummary::fullName, Comparator.nullsLast(String::compareTo)));
         return result;
+    }
+
+    @GetMapping("/template")
+    public ResponseEntity<byte[]> template(Authentication authentication) {
+        User current = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(current);
+        List<String> headers = List.of(
+                "type", "fullName", "username", "password", "email", "phone",
+                "schoolNameOrId", "subjectNameOrId", "responsibleGradeCodes",
+                "city", "subCity", "wereda"
+        );
+        List<List<String>> sample = List.of(
+                List.of("TEACHER", "Sample Teacher", "teacher.sample", "12345678", "t@example.com", "0911000000",
+                        "Sample School", "Mathematics", "KG1,KG2", "", "", ""),
+                List.of("SCHOOL_DIRECTOR", "Sample Director", "director.sample", "12345678", "d@example.com", "0911000001",
+                        "Sample School", "", "", "", "", ""),
+                List.of("LIBRARIAN", "Sample Staff", "staff.sample", "12345678", "s@example.com", "0911000002",
+                        "", "", "", "", "", "")
+        );
+        List<String> notes = List.of(
+                "type is required and must match a configured school-stuff type (TEACHER, SCHOOL_DIRECTOR, or custom type).",
+                "TEACHER requires schoolNameOrId, subjectNameOrId, responsibleGradeCodes. username/password optional (both together).",
+                "SCHOOL_DIRECTOR requires schoolNameOrId and username/password.",
+                "Custom staff types require username/password."
+        );
+        byte[] bytes = excelWorkbookService.buildTemplate("school-stuff", headers, sample, notes);
+        return xlsxAttachment("school-stuff-template.xlsx", bytes);
+    }
+
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> export(Authentication authentication) {
+        List<SchoolStuffSummary> rowsData = list(authentication);
+        List<String> headers = List.of(
+                "id", "type", "fullName", "username", "email", "phone",
+                "schoolId", "schoolName", "subjectId", "subject",
+                "responsibleGradeCodes", "city", "subCity", "wereda"
+        );
+        List<List<String>> rows = rowsData.stream().map(r -> List.of(
+                r.id().toString(),
+                nullToEmpty(r.type()),
+                nullToEmpty(r.fullName()),
+                nullToEmpty(r.username()),
+                nullToEmpty(r.email()),
+                nullToEmpty(r.phone()),
+                r.schoolId() == null ? "" : r.schoolId().toString(),
+                nullToEmpty(r.schoolName()),
+                r.subjectId() == null ? "" : r.subjectId().toString(),
+                nullToEmpty(r.subject()),
+                String.join(",", r.responsibleGradeCodes() == null ? List.of() : r.responsibleGradeCodes()),
+                nullToEmpty(r.city()),
+                nullToEmpty(r.subCity()),
+                nullToEmpty(r.wereda())
+        )).toList();
+        byte[] bytes = excelWorkbookService.buildExport("school-stuff", headers, rows);
+        return xlsxAttachment("school-stuff-export-" + LocalDate.now() + ".xlsx", bytes);
+    }
+
+    @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public BulkImportResult bulkImport(Authentication authentication, @RequestParam("file") MultipartFile file) {
+        User current = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(current);
+        UUID orgId = requireTenant();
+        List<Map<String, String>> rows = excelWorkbookService.parseRows(file);
+        int created = 0;
+        int skipped = 0;
+        List<Map<String, String>> errors = new ArrayList<>();
+        for (Map<String, String> row : rows) {
+            String rowNum = row.getOrDefault("__rowNum", "?");
+            try {
+                String type = required(row, "type").trim().toUpperCase();
+                Role role = roleRepository.findByOrganizationIdAndName(orgId, type)
+                        .orElseThrow(() -> new IllegalArgumentException("Unknown type: " + type));
+                String fullName = required(row, "fullName");
+                String username = nullable(row.get("username"));
+                if (username != null && userRepository.existsByUsernameAndOrganizationId(username, orgId)) {
+                    skipped++;
+                    continue;
+                }
+                UUID schoolId = resolveSchoolId(current, row.get("schoolNameOrId"));
+                UUID subjectId = resolveSubjectId(orgId, row.get("subjectNameOrId"));
+                if ("TEACHER".equals(type)
+                        && schoolId != null
+                        && subjectId != null
+                        && teacherRepository.existsByOrganizationIdAndSchoolIdAndSubjectIdAndNameIgnoreCase(
+                        orgId, schoolId, subjectId, fullName)) {
+                    skipped++;
+                    continue;
+                }
+                if ("SCHOOL_DIRECTOR".equals(type) && schoolId != null) {
+                    School school = schoolRepository.findByIdAndOrganizationId(schoolId, orgId)
+                            .orElseThrow(() -> new IllegalArgumentException("School not found"));
+                    if (school.getDirectorUserId() != null) {
+                        skipped++;
+                        continue;
+                    }
+                }
+                CreateSchoolStuffRequest req = new CreateSchoolStuffRequest(
+                        role.getId(),
+                        fullName,
+                        username,
+                        nullable(row.get("password")),
+                        nullable(row.get("email")),
+                        nullable(row.get("phone")),
+                        schoolId,
+                        subjectId,
+                        splitCsv(row.get("responsibleGradeCodes")),
+                        nullable(row.get("city")),
+                        nullable(row.get("subCity")),
+                        nullable(row.get("wereda"))
+                );
+                create(authentication, req);
+                created++;
+            } catch (Exception e) {
+                errors.add(Map.of(
+                        "row", rowNum,
+                        "field", inferFieldFromMessage(e.getMessage()),
+                        "message", safeMessage(e)
+                ));
+            }
+        }
+        return new BulkImportResult(created, skipped, errors.size(), errors);
     }
 
     @PostMapping
@@ -895,6 +1027,93 @@ public class SchoolStuffController {
 
     private boolean isSuperAdmin(User user) {
         return user.getRoles().stream().anyMatch(r -> "SUPER_ADMIN".equals(r.getName()));
+    }
+
+    private ResponseEntity<byte[]> xlsxAttachment(String filename, byte[] content) {
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .body(content);
+    }
+
+    private String required(Map<String, String> row, String field) {
+        String value = row.getOrDefault(field, "").trim();
+        if (value.isEmpty()) throw new IllegalArgumentException(field + " is required");
+        return value;
+    }
+
+    private String nullable(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private List<String> splitCsv(String csv) {
+        if (csv == null || csv.isBlank()) return List.of();
+        return Arrays.stream(csv.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .toList();
+    }
+
+    private UUID resolveSchoolId(User current, String schoolNameOrId) {
+        String raw = nullable(schoolNameOrId);
+        if (raw == null) return null;
+        UUID orgId = requireTenant();
+        boolean superAdmin = isSuperAdmin(current);
+        try {
+            UUID schoolId = UUID.fromString(raw);
+            return superAdmin
+                    ? schoolRepository.findByIdAndOrganizationId(schoolId, orgId)
+                        .orElseThrow(() -> new IllegalArgumentException("School not found")).getId()
+                    : schoolRepository.findByIdAndOrganizationIdAndCoordinatorUserId(schoolId, orgId, current.getId())
+                        .orElseThrow(() -> new IllegalArgumentException("School not found in coordinator scope")).getId();
+        } catch (IllegalArgumentException ignored) {
+            List<School> scoped = superAdmin
+                    ? schoolRepository.findAllByOrganizationIdAndNameContainingIgnoreCase(orgId, raw)
+                    : schoolRepository.findAllByOrganizationIdAndCoordinatorUserIdAndNameContainingIgnoreCase(orgId, current.getId(), raw);
+            for (School s : scoped) {
+                if (s.getName() != null && s.getName().equalsIgnoreCase(raw)) return s.getId();
+            }
+            throw new IllegalArgumentException("School not found: " + raw);
+        }
+    }
+
+    private UUID resolveSubjectId(UUID orgId, String subjectNameOrId) {
+        String raw = nullable(subjectNameOrId);
+        if (raw == null) return null;
+        try {
+            UUID subjectId = UUID.fromString(raw);
+            return subjectRepository.findByIdAndOrganizationId(subjectId, orgId)
+                    .orElseThrow(() -> new IllegalArgumentException("Subject not found")).getId();
+        } catch (IllegalArgumentException ignored) {
+            return subjectRepository.findAllByOrganizationId(orgId).stream()
+                    .filter(s -> s.getName() != null && s.getName().equalsIgnoreCase(raw))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("Subject not found: " + raw))
+                    .getId();
+        }
+    }
+
+    private String inferFieldFromMessage(String msg) {
+        if (msg == null) return "row";
+        String m = msg.toLowerCase();
+        if (m.contains("type") || m.contains("role")) return "type";
+        if (m.contains("full")) return "fullName";
+        if (m.contains("username")) return "username";
+        if (m.contains("password")) return "password";
+        if (m.contains("school")) return "schoolNameOrId";
+        if (m.contains("subject")) return "subjectNameOrId";
+        if (m.contains("grade")) return "responsibleGradeCodes";
+        return "row";
+    }
+
+    private String safeMessage(Exception e) {
+        return (e.getMessage() == null || e.getMessage().isBlank()) ? "Invalid row data" : e.getMessage();
+    }
+
+    private String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 }
 

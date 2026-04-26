@@ -9,6 +9,8 @@ import java.util.UUID;
 
 @Repository
 public interface SchoolRepository extends TenantAwareRepository<School, UUID> {
+    boolean existsByOrganizationIdAndNameIgnoreCase(UUID organizationId, String name);
+
     List<School> findAllByOrganizationIdAndCoordinatorUserId(UUID organizationId, UUID coordinatorUserId);
 
     Optional<School> findByIdAndOrganizationIdAndCoordinatorUserId(UUID id, UUID organizationId, UUID coordinatorUserId);

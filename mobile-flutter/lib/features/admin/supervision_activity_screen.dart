@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:open_file/open_file.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
 import '../../core/network/api_client.dart';
 
 class SupervisionActivityScreen extends StatefulWidget {
@@ -88,12 +91,30 @@ class _SupervisionActivityScreenState extends State<SupervisionActivityScreen> {
     );
   }
 
+  Future<void> _exportActivity() async {
+    try {
+      final bytes = await ApiClient.downloadActivityExport();
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/activity-export.xlsx');
+      await file.writeAsBytes(bytes, flush: true);
+      await OpenFile.open(file.path);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(ApiClient.messageFromError(e))));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Activity'),
-        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _load)],
+        actions: [
+          IconButton(icon: const Icon(Icons.download_outlined), tooltip: 'Export', onPressed: _exportActivity),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())

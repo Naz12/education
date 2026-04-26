@@ -289,7 +289,10 @@ class _ChecklistItemsAdminScreenState extends State<ChecklistItemsAdminScreen> {
                                 TextFormField(
                                   key: ValueKey('gk-$index'),
                                   initialValue: item['groupKey']?.toString() ?? '',
-                                  decoration: const InputDecoration(labelText: 'Group'),
+                                  decoration: const InputDecoration(
+                                    labelText: 'Section name',
+                                    helperText: 'Same as web publish sections; shown to supervisors in the checklist',
+                                  ),
                                   onChanged: (v) => item['groupKey'] = v,
                                 ),
                                 TextFormField(

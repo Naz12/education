@@ -1,6 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { I18nProvider, useI18n } from "./i18n/I18nProvider.jsx";
+import {
+  buildEditorStateFromChecklistRender,
+  DEFAULT_CHECKLIST_SECTION_ID,
+  groupChecklistItemsInApiOrder,
+  newChecklistItemRowId,
+  normalizeGroupKeyForDisplay,
+  orderItemsToMatchSectionOrder
+} from "./checklistHelpers.js";
 
 /** Use same-origin /api by default so production works behind nginx without extra env wiring. */
 const API_BASE =
@@ -15,6 +23,14 @@ const CHECKLIST_AUTO_ASSIGN_TARGETS = new Set(["SCHOOL", "DIRECTOR", "TEACHER"])
 
 /** Assignment targets that require a school for geo and routing. */
 const ASSIGNMENT_SCHOOL_TARGETS = new Set(["SCHOOL", "DIRECTOR", "SCHOOL_STAFF"]);
+
+function formatTargetWithGrade(targetType, targetGradeCode) {
+  if (!targetType) return "—";
+  if (targetType === "TEACHER" && targetGradeCode) {
+    return `${targetType} · ${targetGradeCode}`;
+  }
+  return targetType;
+}
 
 function GradeCodeCheckboxes({ label, value, onChange, disabled, codes }) {
   const list = Array.isArray(codes) && codes.length > 0 ? codes : CANONICAL_GRADE_CODES;
@@ -53,6 +69,38 @@ function GradeCodeCheckboxes({ label, value, onChange, disabled, codes }) {
 
 function jsonHeaders(base) {
   return { ...base, "Content-Type": "application/json" };
+}
+
+async function downloadXlsx(url, headers, fallbackName) {
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    let details = null;
+    try { details = await res.json(); } catch (_) {}
+    throw new Error(details?.message || "Download failed.");
+  }
+  const blob = await res.blob();
+  const cd = res.headers.get("content-disposition") || "";
+  const match = cd.match(/filename="([^"]+)"/i);
+  const filename = match?.[1] || fallbackName;
+  const objectUrl = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(objectUrl);
+}
+
+async function uploadXlsx(url, headers, file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const reqHeaders = { ...headers };
+  delete reqHeaders["Content-Type"];
+  const res = await fetch(url, { method: "POST", headers: reqHeaders, body: formData });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(payload?.message || "Import failed.");
+  return payload;
 }
 
 const t = {
@@ -1194,6 +1242,7 @@ function UsersPage({ headers, isSuperAdmin }) {
   const [deleteUserBusy, setDeleteUserBusy] = useState(false);
   const [deleteUserForm, setDeleteUserForm] = useState({ id: "", kind: "supervisor" });
   const [message, setMessage] = useState(null);
+  const importRef = useRef(null);
 
   const load = () => {
     if (isSuperAdmin) {
@@ -1377,6 +1426,38 @@ function UsersPage({ headers, isSuperAdmin }) {
     }
   };
 
+  const downloadUsersTemplate = async () => {
+    try {
+      await downloadXlsx(`${API_BASE}/users/template`, headers, "users-template.xlsx");
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    }
+  };
+
+  const exportUsers = async () => {
+    try {
+      await downloadXlsx(`${API_BASE}/users/export`, headers, "users-export.xlsx");
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    }
+  };
+
+  const importUsersFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const result = await uploadXlsx(`${API_BASE}/users/import`, headers, file);
+      const failed = Number(result?.failed || 0);
+      const created = Number(result?.created || 0);
+      setMessage({ type: failed > 0 ? "error" : "ok", text: `Import finished. Created: ${created}, Failed: ${failed}.` });
+      await load();
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      e.target.value = "";
+    }
+  };
+
   return (
     <>
       <PageHeader
@@ -1403,8 +1484,18 @@ function UsersPage({ headers, isSuperAdmin }) {
             >
               {str.addSupervisor}
             </PrimaryButton>
+            <GhostButton onClick={downloadUsersTemplate}>Download template</GhostButton>
+            <GhostButton onClick={() => importRef.current?.click()}>Import</GhostButton>
+            <GhostButton onClick={exportUsers}>Export</GhostButton>
           </div>
         }
+      />
+      <input
+        ref={importRef}
+        type="file"
+        accept=".xlsx"
+        style={{ display: "none" }}
+        onChange={importUsersFile}
       />
       {message && <Alert type={message.type}>{message.text}</Alert>}
 
@@ -1590,6 +1681,7 @@ function SchoolsPage({ headers }) {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteSchoolId, setDeleteSchoolId] = useState("");
   const [message, setMessage] = useState(null);
+  const importRef = useRef(null);
 
   const load = () => {
     const q = nameFilter.trim();
@@ -1701,13 +1793,55 @@ function SchoolsPage({ headers }) {
     }
   };
 
+  const downloadTemplate = async () => {
+    try {
+      await downloadXlsx(`${API_BASE}/schools/template`, headers, "schools-template.xlsx");
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    }
+  };
+
+  const exportSchools = async () => {
+    try {
+      const q = nameFilter.trim();
+      const url = q ? `${API_BASE}/schools/export?q=${encodeURIComponent(q)}` : `${API_BASE}/schools/export`;
+      await downloadXlsx(url, headers, "schools-export.xlsx");
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    }
+  };
+
+  const importSchoolsFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const result = await uploadXlsx(`${API_BASE}/schools/import`, headers, file);
+      const failed = Number(result?.failed || 0);
+      const created = Number(result?.created || 0);
+      setMessage({ type: failed > 0 ? "error" : "ok", text: `Import finished. Created: ${created}, Failed: ${failed}.` });
+      await load();
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      e.target.value = "";
+    }
+  };
+
   return (
     <>
       <PageHeader
         title={str.schoolsTitle}
         subtitle={str.schoolsSubtitle}
-        action={<PrimaryButton onClick={() => setModalOpen(true)}>{str.addSchool}</PrimaryButton>}
+        action={
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <PrimaryButton onClick={() => setModalOpen(true)}>{str.addSchool}</PrimaryButton>
+            <GhostButton onClick={downloadTemplate}>Download template</GhostButton>
+            <GhostButton onClick={() => importRef.current?.click()}>Import</GhostButton>
+            <GhostButton onClick={exportSchools}>Export</GhostButton>
+          </div>
+        }
       />
+      <input ref={importRef} type="file" accept=".xlsx" style={{ display: "none" }} onChange={importSchoolsFile} />
       {message && <Alert type={message.type}>{message.text}</Alert>}
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         <Input placeholder={str.filterByName} value={nameFilter} onChange={(e) => setNameFilter(e.target.value)} style={{ maxWidth: 240 }} />
@@ -1820,6 +1954,7 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
   const [typesManageOpen, setTypesManageOpen] = useState(false);
   const [subjectsManageOpen, setSubjectsManageOpen] = useState(false);
   const [loadingBusy, setLoadingBusy] = useState(false);
+  const importRef = useRef(null);
 
   const [selectedTypeId, setSelectedTypeId] = useState("");
   const selectedType = types.find((t) => t.id === selectedTypeId) || null;
@@ -2226,6 +2361,38 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
     return it.schoolId === filterSchoolId;
   });
 
+  const downloadTemplate = async () => {
+    try {
+      await downloadXlsx(`${API_BASE}/school-stuff/template`, headers, "school-stuff-template.xlsx");
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    }
+  };
+
+  const exportData = async () => {
+    try {
+      await downloadXlsx(`${API_BASE}/school-stuff/export`, headers, "school-stuff-export.xlsx");
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    }
+  };
+
+  const importDataFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const result = await uploadXlsx(`${API_BASE}/school-stuff/import`, headers, file);
+      const failed = Number(result?.failed || 0);
+      const created = Number(result?.created || 0);
+      setMessage({ type: failed > 0 ? "error" : "ok", text: `Import finished. Created: ${created}, Failed: ${failed}.` });
+      await loadItems();
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      e.target.value = "";
+    }
+  };
+
   return (
     <>
       <PageHeader
@@ -2237,9 +2404,13 @@ function SchoolStuffPage({ headers, isSuperAdmin }) {
             <GhostButton onClick={() => setTypeMgmtOpen(true)}>{str.addType}</GhostButton>
             <GhostButton onClick={() => { setTypesManageOpen(true); loadTypes(); }}>{str.manageTypes}</GhostButton>
             <GhostButton onClick={() => { setSubjectsManageOpen(true); loadSubjects(); }}>{str.manageSubjects}</GhostButton>
+            <GhostButton onClick={downloadTemplate}>Download template</GhostButton>
+            <GhostButton onClick={() => importRef.current?.click()}>Import</GhostButton>
+            <GhostButton onClick={exportData}>Export</GhostButton>
           </div>
         }
       />
+      <input ref={importRef} type="file" accept=".xlsx" style={{ display: "none" }} onChange={importDataFile} />
       {message && <Alert type={message.type}>{message.text}</Alert>}
       <div style={{ marginBottom: 16 }}>
         <Label>{str.schoolFilter}</Label>
@@ -2896,9 +3067,6 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
   const [typeDefaultsSaving, setTypeDefaultsSaving] = useState(false);
   const [editingLang, setEditingLang] = useState("en");
   const [ggForm, setGgForm] = useState({ displayName: "", gradeCodes: [] });
-  const [ggLocked, setGgLocked] = useState(false);
-  const [ggCodesLocked, setGgCodesLocked] = useState(false);
-  const [ggLegacyHint, setGgLegacyHint] = useState("");
   const [title, setTitle] = useState("");
   const [targetOptions, setTargetOptions] = useState([]);
   const [purposeOptions, setPurposeOptions] = useState([]);
@@ -2906,14 +3074,23 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
   const [purposeOptionId, setPurposeOptionId] = useState("");
   const [gradeGroupId, setGradeGroupId] = useState("");
   const [autoAssignOnPublish, setAutoAssignOnPublish] = useState(true);
+  const [autoAssignDueAt, setAutoAssignDueAt] = useState("");
   const [skipAutoOnPublish, setSkipAutoOnPublish] = useState(false);
   const [publishingChecklistId, setPublishingChecklistId] = useState("");
-  const [draftItems, setDraftItems] = useState([
+  const [draftSections, setDraftSections] = useState(() => [
+    { _id: DEFAULT_CHECKLIST_SECTION_ID, name: "General" }
+  ]);
+  const draftSectionsRef = useRef(draftSections);
+  useEffect(() => {
+    draftSectionsRef.current = draftSections;
+  }, [draftSections]);
+  const [draftItems, setDraftItems] = useState(() => [
     {
+      _id: newChecklistItemRowId(),
+      sectionId: DEFAULT_CHECKLIST_SECTION_ID,
       question: "",
       questionLocalizedText: JSON.stringify({ en: "", am: "" }),
       type: "YES_NO",
-      groupKey: "General",
       order: 1,
       optionsText: JSON.stringify({ choices: ["YES", "NO"], choicesLocalized: { en: ["YES", "NO"], am: ["YES", "NO"] } }),
       validationText: '{"required":true}'
@@ -2930,10 +3107,11 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
     const baseChoices = Array.isArray(options.choices) && options.choices.length ? options.choices : ["YES", "NO"];
     return [
       {
+        _id: newChecklistItemRowId(),
+        sectionId: DEFAULT_CHECKLIST_SECTION_ID,
         question: "",
         questionLocalizedText: JSON.stringify({ en: "", am: "" }),
         type: "YES_NO",
-        groupKey: "General",
         order: 1,
         optionsText: JSON.stringify({ choices: baseChoices, choicesLocalized: { en: baseChoices, am: baseChoices } }),
         validationText: JSON.stringify(validation)
@@ -2950,7 +3128,8 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
     purposeOptionId: "",
     targetType: "SCHOOL",
     gradeGroupId: "",
-    autoAssignOnPublish: true
+    autoAssignOnPublish: true,
+    autoAssignDueAt: ""
   });
   const [targetOptionFormOpen, setTargetOptionFormOpen] = useState(false);
   const [targetOptionForm, setTargetOptionForm] = useState({ id: null, name: "", routingKind: "SCHOOL" });
@@ -2963,7 +3142,10 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
   const [deleteChecklistId, setDeleteChecklistId] = useState("");
   const [toggleBusyId, setToggleBusyId] = useState("");
 
-  const resetDraftItems = () => setDraftItems(defaultDraftItems);
+  const resetDraftItems = () => {
+    setDraftSections([{ _id: DEFAULT_CHECKLIST_SECTION_ID, name: "General" }]);
+    setDraftItems(defaultDraftItems);
+  };
 
   const loadChecklists = () => fetch(`${API_BASE}/checklists`, { headers }).then((r) => r.json()).then(setItems);
   const loadGradeGroups = () => fetch(`${API_BASE}/grade-groups`, { headers }).then((r) => r.json()).then(setGradeGroups);
@@ -3039,20 +3221,7 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
   }, [items]);
 
   const openGradeGroupModal = () => {
-    const safeGroups = gradeGroups ?? [];
-    const template = safeGroups.find((g) => g.managedByMe) ?? safeGroups[0];
-    const displayName = template?.displayName ?? "";
-    const fromApi = Array.isArray(template?.gradeCodes) ? template.gradeCodes : [];
-    const hasStoredCodes = fromApi.length > 0;
-
-    setGgForm({ displayName, gradeCodes: hasStoredCodes ? [...fromApi] : [] });
-    setGgLocked(Boolean(template?.managedByMe) && displayName.trim() !== "");
-    setGgCodesLocked(Boolean(template?.managedByMe) && hasStoredCodes);
-    setGgLegacyHint(
-      !hasStoredCodes && template?.managedByMe && (template?.gradesDescription ?? "").trim() !== ""
-        ? String(template.gradesDescription)
-        : ""
-    );
+    setGgForm({ displayName: "", gradeCodes: [] });
     setGgModal(true);
   };
 
@@ -3089,15 +3258,13 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
       return;
     }
     setGgForm({ displayName: "", gradeCodes: [] });
-    setGgLocked(false);
-    setGgCodesLocked(false);
-    setGgLegacyHint("");
     setGgModal(false);
     setMessage({ type: "ok", text: "Grade group saved." });
     loadGradeGroups();
   };
 
   const resetDraftItemsWithDefaults = () => {
+    setDraftSections([{ _id: DEFAULT_CHECKLIST_SECTION_ID, name: "General" }]);
     setDraftItems(defaultDraftItems);
   };
 
@@ -3172,18 +3339,8 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
       const res = await fetch(`${API_BASE}/checklists/${checklistId}/render`, { headers });
       if (!res.ok) throw new Error("Could not load checklist render (ensure it has an active version).");
       const data = await res.json();
-      const items = (data.items || []).map((it, idx) => ({
-        question: (it.questionLocalized?.en ?? it.question ?? ""),
-        questionLocalizedText: JSON.stringify({
-          en: (it.questionLocalized?.en ?? it.question ?? ""),
-          am: it.questionLocalized?.am ?? ""
-        }),
-        type: it.type || "TEXT",
-        groupKey: it.groupKey || "General",
-        order: it.order ?? idx + 1,
-        optionsText: JSON.stringify(it.options || {}),
-        validationText: JSON.stringify(it.validation || {})
-      }));
+      const { sections, items } = buildEditorStateFromChecklistRender(data, typeDefaults);
+      setDraftSections(sections);
       if (items.length) setDraftItems(items);
     } catch (_) {
       resetDraftItemsWithDefaults();
@@ -3209,7 +3366,8 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
       purposeOptionId: c.purposeOptionId ?? "",
       targetType: c.targetType ?? "SCHOOL",
       gradeGroupId: c.gradeGroupId ?? "",
-      autoAssignOnPublish: c.autoAssignOnPublish !== false
+      autoAssignOnPublish: c.autoAssignOnPublish !== false,
+      autoAssignDueAt: c.autoAssignDueAt ? new Date(c.autoAssignDueAt).toISOString().slice(0, 16) : ""
     });
     setEditModalOpen(true);
   };
@@ -3219,6 +3377,11 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
     if (!editForm.id) return;
     setEditBusy(true);
     try {
+      const autoAssignable = CHECKLIST_AUTO_ASSIGN_TARGETS.has(editForm.targetType);
+      const autoAssignEnabled = autoAssignable && Boolean(editForm.autoAssignOnPublish);
+      if (autoAssignEnabled && !editForm.autoAssignDueAt) {
+        throw new Error("Set auto-assignment due date when auto-assign is enabled.");
+      }
       const res = await fetch(`${API_BASE}/checklists/${editForm.id}`, {
         method: "PATCH",
         headers: jsonHeaders(headers),
@@ -3227,7 +3390,8 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
           targetOptionId: editForm.targetOptionId,
           purposeOptionId: editForm.purposeOptionId,
           gradeGroupId: editForm.gradeGroupId,
-          autoAssignOnPublish: Boolean(editForm.autoAssignOnPublish)
+          autoAssignOnPublish: autoAssignEnabled,
+          autoAssignDueAt: autoAssignEnabled && editForm.autoAssignDueAt ? new Date(editForm.autoAssignDueAt).toISOString() : null
         })
       });
       if (!res.ok) {
@@ -3423,6 +3587,11 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
     }
     const routing =
       targetOptions.find((o) => o.id === targetOptionId)?.routingKind ?? "SCHOOL";
+    const autoAssignEnabled = CHECKLIST_AUTO_ASSIGN_TARGETS.has(routing) && Boolean(autoAssignOnPublish);
+    if (autoAssignEnabled && !autoAssignDueAt) {
+      setMessage({ type: "error", text: "Set auto-assignment due date when auto-assign is enabled." });
+      return;
+    }
     const res = await fetch(`${API_BASE}/checklists`, {
       method: "POST",
       headers: jsonHeaders(headers),
@@ -3431,7 +3600,8 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
         targetOptionId,
         purposeOptionId,
         gradeGroupId,
-        autoAssignOnPublish: CHECKLIST_AUTO_ASSIGN_TARGETS.has(routing) && Boolean(autoAssignOnPublish)
+        autoAssignOnPublish: autoAssignEnabled,
+        autoAssignDueAt: autoAssignEnabled && autoAssignDueAt ? new Date(autoAssignDueAt).toISOString() : null
       })
     });
     if (!res.ok) {
@@ -3441,30 +3611,104 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
     const newId = await res.json();
     setTitle("");
     setAutoAssignOnPublish(true);
+    setAutoAssignDueAt("");
     setMessage({ type: "ok", text: "Checklist created." });
     await loadChecklists();
     if (newId) setPublishingChecklistId(newId);
   };
 
-  const addDraftItem = () => {
-    setDraftItems((prev) => [
-      ...prev,
-      {
+  const addDraftItem = (sectionId) => {
+    if (!sectionId) return;
+    setDraftItems((prev) => {
+      const sections = draftSectionsRef.current;
+      const newRow = {
+        _id: newChecklistItemRowId(),
+        sectionId,
         question: "",
         questionLocalizedText: JSON.stringify({ en: "", am: "" }),
         type: "TEXT",
-        groupKey: "General",
         order: prev.length + 1,
         optionsText: "{}",
         validationText: '{"required":false}'
+      };
+      const secOrder = sections.findIndex((s) => s._id === sectionId);
+      if (secOrder < 0) {
+        return [...prev, newRow];
       }
-    ]);
+      let lastInSec = -1;
+      for (let i = 0; i < prev.length; i++) {
+        if (prev[i].sectionId === sectionId) lastInSec = i;
+      }
+      if (lastInSec >= 0) {
+        const next = [...prev];
+        next.splice(lastInSec + 1, 0, newRow);
+        return next;
+      }
+      let lastBefore = -1;
+      for (let i = 0; i < prev.length; i++) {
+        const sid = prev[i].sectionId;
+        const si = sections.findIndex((s) => s._id === sid);
+        if (si >= 0 && si < secOrder) lastBefore = i;
+      }
+      const next = [...prev];
+      next.splice(lastBefore + 1, 0, newRow);
+      return next;
+    });
+  };
+
+  const removeDraftItem = (index) => {
+    setDraftItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const addSection = () => {
+    const newSec = { _id: newChecklistItemRowId(), name: "New section" };
+    setDraftSections((s) => [...s, newSec]);
+  };
+
+  const updateSectionName = (sectionId, name) => {
+    setDraftSections((secs) => secs.map((s) => (s._id === sectionId ? { ...s, name } : s)));
+  };
+
+  const moveSection = (index, direction) => {
+    setDraftSections((sections) => {
+      const j = index + direction;
+      if (j < 0 || j >= sections.length) return sections;
+      const reordered = [...sections];
+      [reordered[index], reordered[j]] = [reordered[j], reordered[index]];
+      setDraftItems((items) => orderItemsToMatchSectionOrder(reordered, items));
+      return reordered;
+    });
+  };
+
+  const removeSection = (index) => {
+    setDraftSections((secs) => {
+      if (secs.length <= 1) return secs;
+      const targetId = index > 0 ? secs[index - 1]._id : secs[1]._id;
+      const removed = secs[index]._id;
+      const nextSecs = secs.filter((_, i) => i !== index);
+      setDraftItems((items) => {
+        const reassign = items.map((it) => (it.sectionId === removed ? { ...it, sectionId: targetId } : it));
+        return orderItemsToMatchSectionOrder(nextSecs, reassign);
+      });
+      return nextSecs;
+    });
   };
 
   const publishVersion = async (e) => {
     e.preventDefault();
     if (!publishingChecklistId) return;
     try {
+      const normName = (s) => (s?.name ?? "").trim().toLowerCase() || "general";
+      const secNames = draftSections.map((s) => normName(s));
+      if (new Set(secNames).size !== secNames.length) {
+        setMessage({ type: "error", text: "Section names must be unique (after trimming)." });
+        return;
+      }
+      const groupKeyFor = (item) => {
+        const sec = draftSections.find((s) => s._id === item.sectionId);
+        const g = (sec?.name ?? "").trim() || "General";
+        return g;
+      };
       const payload = {
         items: draftItems.map((item, index) => ({
           question: item.question,
@@ -3472,8 +3716,8 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
           type: item.type,
           options: JSON.parse(item.optionsText || "{}"),
           validation: JSON.parse(item.validationText || "{}"),
-          groupKey: item.groupKey || null,
-          order: Number(item.order || index + 1)
+          groupKey: groupKeyFor(item) || null,
+          order: index + 1
         })),
         skipAutoAssignment: Boolean(skipAutoOnPublish)
       };
@@ -3599,6 +3843,18 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
                 />
                 Auto-assign supervisors to matching schools when this checklist is published (school or director routing)
               </label>
+              {CHECKLIST_AUTO_ASSIGN_TARGETS.has(targetOptions.find((o) => o.id === targetOptionId)?.routingKind ?? "") && autoAssignOnPublish && (
+                <div>
+                  <Label>Auto-assignment due date</Label>
+                  <Input
+                    type="datetime-local"
+                    value={autoAssignDueAt}
+                    onChange={(e) => setAutoAssignDueAt(e.target.value)}
+                    required
+                    aria-label="Auto-assignment due date"
+                  />
+                </div>
+              )}
               <PrimaryButton type="submit">Create checklist</PrimaryButton>
             </form>
           </Card>
@@ -3654,9 +3910,51 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
               ))}
             </select>
           </div>
-          {draftItems.map((item, index) => (
-            <Card key={index} style={{ padding: 14, background: t.accentSoft }}>
-              <strong style={{ fontSize: 13 }}>Item {index + 1}</strong>
+          {draftSections.map((section, secIndex) => (
+            <div key={section._id} style={{ display: "grid", gap: 10, padding: 14, borderRadius: t.radius, border: `1px solid ${t.line}`, background: t.card }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                <Label style={{ margin: 0 }}>{str.sectionNameLabel}</Label>
+                <Input
+                  value={section.name}
+                  onChange={(e) => updateSectionName(section._id, e.target.value)}
+                  placeholder="General"
+                  style={{ minWidth: 180, maxWidth: 400, flex: 1 }}
+                />
+                <GhostButton
+                  type="button"
+                  disabled={secIndex <= 0}
+                  onClick={() => moveSection(secIndex, -1)}
+                  title={str.moveSectionUp}
+                >
+                  ↑
+                </GhostButton>
+                <GhostButton
+                  type="button"
+                  disabled={secIndex >= draftSections.length - 1}
+                  onClick={() => moveSection(secIndex, 1)}
+                  title={str.moveSectionDown}
+                >
+                  ↓
+                </GhostButton>
+                <GhostButton
+                  type="button"
+                  disabled={draftSections.length <= 1}
+                  onClick={() => removeSection(secIndex)}
+                >
+                  {str.removeSection}
+                </GhostButton>
+                <GhostButton type="button" onClick={() => addDraftItem(section._id)}>
+                  {str.addChecklistItem}
+                </GhostButton>
+              </div>
+          {draftItems.map((item, index) => {
+            if (item.sectionId !== section._id) return null;
+            return (
+            <Card key={item._id ?? `item-${index}`} style={{ padding: 14, background: t.accentSoft }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                <strong style={{ fontSize: 13 }}>Item {index + 1}</strong>
+                <GhostButton type="button" onClick={() => removeDraftItem(index)}>{str.delete}</GhostButton>
+              </div>
               {(() => {
                 const optionsObj = safeJsonParse(item.optionsText, {});
                 const choicesLocalized = (optionsObj.choicesLocalized && typeof optionsObj.choicesLocalized === "object")
@@ -3723,8 +4021,7 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
                       />
                     </div>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
-                      <div>
+                    <div style={{ marginTop: 8 }}>
                         <Label>Type</Label>
                         <select
                           value={item.type}
@@ -3791,22 +4088,12 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
                               })
                             );
                           }}
-                          style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}`, width: "100%" }}
+                          style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}`, width: "100%", marginTop: 6 }}
                         >
                           {["TEXT", "SINGLE_CHOICE", "MULTIPLE_CHOICE", "YES_NO", "RATING", "PHOTO"].map((x) => (
                             <option key={x} value={x}>{x}</option>
                           ))}
                         </select>
-                      </div>
-
-                      <div>
-                        <Label>Group</Label>
-                        <Input
-                          value={item.groupKey}
-                          onChange={(e) => setDraftItems((p) => p.map((x, i) => (i === index ? { ...x, groupKey: e.target.value } : x)))}
-                          placeholder="Group"
-                        />
-                      </div>
                     </div>
 
                     {isChoiceType ? (
@@ -4015,13 +4302,18 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
                 );
               })()}
             </Card>
+            );
+          })}
+            </div>
           ))}
+          <GhostButton type="button" onClick={addSection} style={{ justifySelf: "start" }}>
+            {str.addSection}
+          </GhostButton>
           <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: t.text, marginTop: 4 }}>
             <input type="checkbox" checked={skipAutoOnPublish} onChange={(e) => setSkipAutoOnPublish(e.target.checked)} />
             Skip automatic supervisor assignment for this publish (manual assignment still available)
           </label>
-          <div style={{ display: "flex", gap: 8 }}>
-            <GhostButton type="button" onClick={addDraftItem}>Add item</GhostButton>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <PrimaryButton type="submit">Publish version</PrimaryButton>
           </div>
             </form>
@@ -4454,6 +4746,17 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
             />
             Auto-assign on publish (school or director routing)
           </label>
+          {CHECKLIST_AUTO_ASSIGN_TARGETS.has(editForm.targetType) && Boolean(editForm.autoAssignOnPublish) && (
+            <div>
+              <Label>Auto-assignment due date</Label>
+              <Input
+                type="datetime-local"
+                value={editForm.autoAssignDueAt}
+                onChange={(e) => setEditForm((p) => ({ ...p, autoAssignDueAt: e.target.value }))}
+                required
+              />
+            </div>
+          )}
           <PrimaryButton type="submit" disabled={editBusy}>
             {editBusy ? "Saving…" : "Save changes"}
           </PrimaryButton>
@@ -4481,26 +4784,13 @@ function ChecklistsPage({ headers, isSuperAdmin, onOpenChecklistItems }) {
       </Modal>
       <Modal open={ggModal} onClose={() => setGgModal(false)} title="New grade group" wide>
         <form onSubmit={createGradeGroup} style={{ display: "grid", gap: 12 }}>
-          {ggLocked && (
-            <p style={{ fontSize: 12, color: t.muted, marginTop: 0 }}>
-              Label is taken from your cluster coordinator configuration. Select which grades belong in this group.
-            </p>
-          )}
-          {ggLegacyHint ? (
-            <p style={{ fontSize: 12, color: t.muted, margin: 0 }}>
-              Legacy scope text (pick matching grades below): <strong style={{ color: t.text }}>{ggLegacyHint}</strong>
-            </p>
-          ) : null}
-          <div><Label>Label</Label><Input disabled={ggLocked} value={ggForm.displayName} onChange={(e) => setGgForm((p) => ({ ...p, displayName: e.target.value }))} required placeholder="e.g. Upper primary" /></div>
+          <div><Label>Label</Label><Input value={ggForm.displayName} onChange={(e) => setGgForm((p) => ({ ...p, displayName: e.target.value }))} required placeholder="e.g. Upper primary" /></div>
           <GradeCodeCheckboxes
             label="Grades in this group"
             value={ggForm.gradeCodes}
             onChange={(codes) => setGgForm((p) => ({ ...p, gradeCodes: codes }))}
-            disabled={ggCodesLocked}
+            disabled={false}
           />
-          {ggCodesLocked ? (
-            <p style={{ fontSize: 12, color: t.muted, margin: 0 }}>Grades are fixed from your coordinator template.</p>
-          ) : null}
           <PrimaryButton type="submit">Save</PrimaryButton>
         </form>
       </Modal>
@@ -4514,6 +4804,11 @@ function ChecklistItemsPage({ headers, initialChecklistId }) {
   const LANG_LABEL = { en: str.english, am: str.amharic };
   const [items, setItems] = useState([]);
   const [publishingChecklistId, setPublishingChecklistId] = useState(initialChecklistId || "");
+  const [draftSections, setDraftSections] = useState([]);
+  const draftSectionsRef = useRef(draftSections);
+  useEffect(() => {
+    draftSectionsRef.current = draftSections;
+  }, [draftSections]);
   const [draftItems, setDraftItems] = useState([]);
   const [typeDefaults, setTypeDefaults] = useState(null);
   const [editingLang, setEditingLang] = useState("en");
@@ -4551,26 +4846,95 @@ function ChecklistItemsPage({ headers, initialChecklistId }) {
     }
   };
 
+  const addDraftItem = (sectionId) => {
+    if (!sectionId) return;
+    setDraftItems((prev) => {
+      const sections = draftSectionsRef.current;
+      const newRow = {
+        _id: newChecklistItemRowId(),
+        sectionId,
+        question: "",
+        questionLocalizedText: JSON.stringify({ en: "", am: "" }),
+        type: "TEXT",
+        order: prev.length + 1,
+        optionsText: "{}",
+        validationText: '{"required":false}'
+      };
+      const secOrder = sections.findIndex((s) => s._id === sectionId);
+      if (secOrder < 0) {
+        return [...prev, newRow];
+      }
+      let lastInSec = -1;
+      for (let i = 0; i < prev.length; i++) {
+        if (prev[i].sectionId === sectionId) lastInSec = i;
+      }
+      if (lastInSec >= 0) {
+        const next = [...prev];
+        next.splice(lastInSec + 1, 0, newRow);
+        return next;
+      }
+      let lastBefore = -1;
+      for (let i = 0; i < prev.length; i++) {
+        const sid = prev[i].sectionId;
+        const si = sections.findIndex((s) => s._id === sid);
+        if (si >= 0 && si < secOrder) lastBefore = i;
+      }
+      const next = [...prev];
+      next.splice(lastBefore + 1, 0, newRow);
+      return next;
+    });
+  };
+
+  const removeDraftItem = (index) => {
+    setDraftItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const addSection = () => {
+    const newSec = { _id: newChecklistItemRowId(), name: "New section" };
+    setDraftSections((s) => [...s, newSec]);
+  };
+
+  const updateSectionName = (sectionId, name) => {
+    setDraftSections((secs) => secs.map((s) => (s._id === sectionId ? { ...s, name } : s)));
+  };
+
+  const moveSection = (index, direction) => {
+    setDraftSections((sections) => {
+      const j = index + direction;
+      if (j < 0 || j >= sections.length) return sections;
+      const reordered = [...sections];
+      [reordered[index], reordered[j]] = [reordered[j], reordered[index]];
+      setDraftItems((items) => orderItemsToMatchSectionOrder(reordered, items));
+      return reordered;
+    });
+  };
+
+  const removeSection = (index) => {
+    setDraftSections((secs) => {
+      if (secs.length <= 1) return secs;
+      const targetId = index > 0 ? secs[index - 1]._id : secs[1]._id;
+      const removed = secs[index]._id;
+      const nextSecs = secs.filter((_, i) => i !== index);
+      setDraftItems((items) => {
+        const reassign = items.map((it) => (it.sectionId === removed ? { ...it, sectionId: targetId } : it));
+        return orderItemsToMatchSectionOrder(nextSecs, reassign);
+      });
+      return nextSecs;
+    });
+  };
+
   const loadDraftFromChecklist = async (checklistId) => {
     if (!checklistId) return;
     try {
       const res = await fetch(`${API_BASE}/checklists/${checklistId}/render`, { headers });
       if (!res.ok) throw new Error("Could not load checklist render.");
       const data = await res.json();
-      const mapped = (data.items || []).map((it, idx) => ({
-        question: (it.questionLocalized?.en ?? it.question ?? ""),
-        questionLocalizedText: JSON.stringify({
-          en: (it.questionLocalized?.en ?? it.question ?? ""),
-          am: it.questionLocalized?.am ?? ""
-        }),
-        type: it.type || "TEXT",
-        groupKey: it.groupKey || "General",
-        order: it.order ?? idx + 1,
-        optionsText: JSON.stringify(it.options || {}),
-        validationText: JSON.stringify(it.validation || {})
-      }));
+      const { sections, items: mapped } = buildEditorStateFromChecklistRender(data, typeDefaults);
+      setDraftSections(sections);
       setDraftItems(mapped);
     } catch (err) {
+      setDraftSections([]);
+      setDraftItems([]);
       setMessage({ type: "error", text: err.message || "Load failed." });
     }
   };
@@ -4578,12 +4942,22 @@ function ChecklistItemsPage({ headers, initialChecklistId }) {
   useEffect(() => {
     if (!publishingChecklistId) return;
     loadDraftFromChecklist(publishingChecklistId);
-  }, [publishingChecklistId, headers]);
+  }, [publishingChecklistId, headers, typeDefaults]);
 
   const publishVersion = async (e) => {
     e.preventDefault();
     if (!publishingChecklistId) return;
     try {
+      const normName = (s) => (s?.name ?? "").trim().toLowerCase() || "general";
+      const secNames = draftSections.map((s) => normName(s));
+      if (new Set(secNames).size !== secNames.length) {
+        setMessage({ type: "error", text: "Section names must be unique (after trimming)." });
+        return;
+      }
+      const groupKeyFor = (item) => {
+        const sec = draftSections.find((s) => s._id === item.sectionId);
+        return (sec?.name ?? "").trim() || "General";
+      };
       const payload = {
         items: draftItems.map((item, index) => ({
           question: item.question,
@@ -4591,8 +4965,8 @@ function ChecklistItemsPage({ headers, initialChecklistId }) {
           type: item.type,
           options: JSON.parse(item.optionsText || "{}"),
           validation: JSON.parse(item.validationText || "{}"),
-          groupKey: item.groupKey || null,
-          order: Number(item.order || index + 1)
+          groupKey: groupKeyFor(item) || null,
+          order: index + 1
         })),
         skipAutoAssignment: Boolean(skipAutoOnPublish)
       };
@@ -4656,89 +5030,133 @@ function ChecklistItemsPage({ headers, initialChecklistId }) {
       {publishingChecklistId && (
         <Card style={{ padding: 20, marginBottom: 20 }}>
           <form onSubmit={publishVersion} style={{ display: "grid", gap: 12 }}>
-            {draftItems.map((item, index) => {
-              const optionsObj = safeJsonParse(item.optionsText, {});
-              const choicesLocalized = (optionsObj.choicesLocalized && typeof optionsObj.choicesLocalized === "object")
-                ? optionsObj.choicesLocalized
-                : {};
-              const choices = Array.isArray(choicesLocalized[editingLang])
-                ? choicesLocalized[editingLang]
-                : (Array.isArray(optionsObj.choices) ? optionsObj.choices : []);
-              const questionLocalizedText = safeJsonParse(
-                item.questionLocalizedText || "{\"en\":\"\",\"am\":\"\"}",
-                { en: item.question ?? "", am: "" }
-              );
-              const choiceTypes = ["SINGLE_CHOICE", "MULTIPLE_CHOICE", "YES_NO"];
-              const isChoiceType = choiceTypes.includes(item.type);
-              const minChoices = item.type === "YES_NO" ? 2 : 1;
-              const normalizedChoices = choices.length >= minChoices ? choices : (item.type === "YES_NO" ? ["YES", "NO"] : [""]);
-              return (
-                <Card key={index} style={{ padding: 14, background: t.accentSoft }}>
-                  <strong style={{ fontSize: 13 }}>
-                    {str.itemLabel} {index + 1}
-                  </strong>
-                  <div style={{ marginTop: 8 }}>
-                    <Label>
-                      {str.questionWord} ({LANG_LABEL[editingLang] ?? editingLang})
-                    </Label>
-                    <Input
-                      value={questionLocalizedText[editingLang] ?? ""}
-                      onChange={(e) => {
-                        const nextVal = e.target.value;
-                        setDraftItems((p) => p.map((x, i) => {
-                          if (i !== index) return x;
-                          const currentQ = safeJsonParse(x.questionLocalizedText || "{\"en\":\"\",\"am\":\"\"}", { en: x.question ?? "", am: "" });
-                          const updatedQ = { ...currentQ, [editingLang]: nextVal };
-                          return {
-                            ...x,
-                            questionLocalizedText: JSON.stringify(updatedQ),
-                            question: (typeof updatedQ.en === "string" && updatedQ.en.trim() !== "") ? updatedQ.en : nextVal
-                          };
-                        }));
-                      }}
-                      required
-                    />
-                  </div>
-                  {isChoiceType && (
-                    <div style={{ marginTop: 8 }}>
-                      <Label>{str.answersOptions}</Label>
-                      <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-                        {normalizedChoices.map((c, choiceIndex) => (
-                          <Input
-                            key={choiceIndex}
-                            value={c}
-                            onChange={(e) => {
-                              const next = [...normalizedChoices];
-                              next[choiceIndex] = e.target.value;
-                              setDraftItems((p) =>
-                                p.map((x, i) => {
-                                  if (i !== index) return x;
-                                  const prevOptionsObj = safeJsonParse(x.optionsText, {});
-                                  const prevChoicesLocalized = (prevOptionsObj.choicesLocalized && typeof prevOptionsObj.choicesLocalized === "object")
-                                    ? prevOptionsObj.choicesLocalized
-                                    : {};
-                                  const nextChoicesLocalized = { ...prevChoicesLocalized, [editingLang]: next };
-                                  const enChoices = Array.isArray(nextChoicesLocalized.en) ? nextChoicesLocalized.en : (editingLang === "en" ? next : []);
-                                  return {
-                                    ...x,
-                                    optionsText: JSON.stringify({ choices: enChoices, choicesLocalized: nextChoicesLocalized })
-                                  };
-                                })
-                              );
-                            }}
-                          />
-                        ))}
+            {draftSections.map((section, secIndex) => (
+              <div
+                key={section._id}
+                style={{ display: "grid", gap: 10, padding: 14, borderRadius: t.radius, border: `1px solid ${t.line}`, background: t.card }}
+              >
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                  <Label style={{ margin: 0 }}>{str.sectionNameLabel}</Label>
+                  <Input
+                    value={section.name}
+                    onChange={(e) => updateSectionName(section._id, e.target.value)}
+                    placeholder="General"
+                    style={{ minWidth: 180, maxWidth: 400, flex: 1 }}
+                  />
+                  <GhostButton type="button" disabled={secIndex <= 0} onClick={() => moveSection(secIndex, -1)} title={str.moveSectionUp}>
+                    ↑
+                  </GhostButton>
+                  <GhostButton
+                    type="button"
+                    disabled={secIndex >= draftSections.length - 1}
+                    onClick={() => moveSection(secIndex, 1)}
+                    title={str.moveSectionDown}
+                  >
+                    ↓
+                  </GhostButton>
+                  <GhostButton type="button" disabled={draftSections.length <= 1} onClick={() => removeSection(secIndex)}>
+                    {str.removeSection}
+                  </GhostButton>
+                  <GhostButton type="button" onClick={() => addDraftItem(section._id)}>
+                    {str.addChecklistItem}
+                  </GhostButton>
+                </div>
+                {draftItems.map((item, index) => {
+                  if (item.sectionId !== section._id) return null;
+                  const optionsObj = safeJsonParse(item.optionsText, {});
+                  const choicesLocalized = (optionsObj.choicesLocalized && typeof optionsObj.choicesLocalized === "object")
+                    ? optionsObj.choicesLocalized
+                    : {};
+                  const choices = Array.isArray(choicesLocalized[editingLang])
+                    ? choicesLocalized[editingLang]
+                    : (Array.isArray(optionsObj.choices) ? optionsObj.choices : []);
+                  const questionLocalizedText = safeJsonParse(
+                    item.questionLocalizedText || "{\"en\":\"\",\"am\":\"\"}",
+                    { en: item.question ?? "", am: "" }
+                  );
+                  const choiceTypes = ["SINGLE_CHOICE", "MULTIPLE_CHOICE", "YES_NO"];
+                  const isChoiceType = choiceTypes.includes(item.type);
+                  const minChoices = item.type === "YES_NO" ? 2 : 1;
+                  const normalizedChoices = choices.length >= minChoices ? choices : (item.type === "YES_NO" ? ["YES", "NO"] : [""]);
+                  return (
+                    <Card key={item._id ?? index} style={{ padding: 14, background: t.accentSoft }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                        <strong style={{ fontSize: 13 }}>
+                          {str.itemLabel} {index + 1}
+                        </strong>
+                        <GhostButton type="button" onClick={() => removeDraftItem(index)}>
+                          {str.delete}
+                        </GhostButton>
                       </div>
-                    </div>
-                  )}
-                </Card>
-              );
-            })}
+                      <div style={{ marginTop: 8 }}>
+                        <Label>
+                          {str.questionWord} ({LANG_LABEL[editingLang] ?? editingLang})
+                        </Label>
+                        <Input
+                          value={questionLocalizedText[editingLang] ?? ""}
+                          onChange={(e) => {
+                            const nextVal = e.target.value;
+                            setDraftItems((p) => p.map((x, i) => {
+                              if (i !== index) return x;
+                              const currentQ = safeJsonParse(x.questionLocalizedText || "{\"en\":\"\",\"am\":\"\"}", { en: x.question ?? "", am: "" });
+                              const updatedQ = { ...currentQ, [editingLang]: nextVal };
+                              return {
+                                ...x,
+                                questionLocalizedText: JSON.stringify(updatedQ),
+                                question: (typeof updatedQ.en === "string" && updatedQ.en.trim() !== "") ? updatedQ.en : nextVal
+                              };
+                            }));
+                          }}
+                          required
+                        />
+                      </div>
+                      {isChoiceType && (
+                        <div style={{ marginTop: 8 }}>
+                          <Label>{str.answersOptions}</Label>
+                          <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                            {normalizedChoices.map((c, choiceIndex) => (
+                              <Input
+                                key={choiceIndex}
+                                value={c}
+                                onChange={(e) => {
+                                  const next = [...normalizedChoices];
+                                  next[choiceIndex] = e.target.value;
+                                  setDraftItems((p) =>
+                                    p.map((x, i) => {
+                                      if (i !== index) return x;
+                                      const prevOptionsObj = safeJsonParse(x.optionsText, {});
+                                      const prevChoicesLocalized = (prevOptionsObj.choicesLocalized && typeof prevOptionsObj.choicesLocalized === "object")
+                                        ? prevOptionsObj.choicesLocalized
+                                        : {};
+                                      const nextChoicesLocalized = { ...prevChoicesLocalized, [editingLang]: next };
+                                      const enChoices = Array.isArray(nextChoicesLocalized.en) ? nextChoicesLocalized.en : (editingLang === "en" ? next : []);
+                                      return {
+                                        ...x,
+                                        optionsText: JSON.stringify({ choices: enChoices, choicesLocalized: nextChoicesLocalized })
+                                      };
+                                    })
+                                  );
+                                }}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </Card>
+                  );
+                })}
+              </div>
+            ))}
+            <GhostButton type="button" onClick={addSection} style={{ justifySelf: "start" }}>
+              {str.addSection}
+            </GhostButton>
             <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: t.text }}>
               <input type="checkbox" checked={skipAutoOnPublish} onChange={(e) => setSkipAutoOnPublish(e.target.checked)} />
               {str.skipAutoAssignPublish}
             </label>
-            <PrimaryButton type="submit">{str.saveAndPublish}</PrimaryButton>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <PrimaryButton type="submit">{str.saveAndPublish}</PrimaryButton>
+            </div>
           </form>
         </Card>
       )}
@@ -4979,8 +5397,15 @@ function SupervisorVisitPanel({ headers, assignmentId, onBack, onCompleted }) {
   const [msg, setMsg] = useState(null);
   const [manualLat, setManualLat] = useState("9.03");
   const [manualLon, setManualLon] = useState("38.74");
+  const [groupIdx, setGroupIdx] = useState(0);
+  const [oneByOneIdx, setOneByOneIdx] = useState(0);
   const teacherCanvasRef = useRef(null);
   const directorCanvasRef = useRef(null);
+
+  const displayMode = (render?.displayMode || "ALL_AT_ONCE").toString().toUpperCase();
+  const groups = useMemo(() => groupChecklistItemsInApiOrder(render?.items || []), [render?.items]);
+  const flatItems = render?.items || [];
+  const showAllAtOnceSectionHeaders = groups.length > 1 || (groups.length === 1 && groups[0].key !== "General");
 
   useEffect(() => {
     let cancelled = false;
@@ -4999,6 +5424,11 @@ function SupervisorVisitPanel({ headers, assignmentId, onBack, onCompleted }) {
       cancelled = true;
     };
   }, [assignmentId, headers, locale]);
+
+  useEffect(() => {
+    setGroupIdx(0);
+    setOneByOneIdx(0);
+  }, [assignmentId, render]);
 
   useEffect(() => {
     if (step !== "sign") return undefined;
@@ -5193,9 +5623,84 @@ function SupervisorVisitPanel({ headers, assignmentId, onBack, onCompleted }) {
         </div>
       </details>
       <form onSubmit={submitVisit}>
-        {(render.items || []).map((it) => (
-          <SupervisorChecklistField key={it.id} item={it} value={answers[it.id]} onChange={(v) => setAnswer(it.id, v)} />
-        ))}
+        {displayMode === "GROUPED" && groups.length > 0 ? (() => {
+          const g = groups[Math.min(groupIdx, groups.length - 1)];
+          return (
+            <>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                <h3 style={{ margin: 0, fontSize: 16, color: t.text }}>{g.key}</h3>
+                <span style={{ color: t.muted, fontSize: 13 }}>
+                  {str.sectionLabel} {Math.min(groupIdx, groups.length - 1) + 1} / {groups.length}
+                </span>
+              </div>
+              {g.items.map((it) => (
+                <SupervisorChecklistField key={it.id} item={it} value={answers[it.id]} onChange={(v) => setAnswer(it.id, v)} />
+              ))}
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 16, marginBottom: 16, gap: 8, flexWrap: "wrap" }}>
+                <GhostButton type="button" disabled={groupIdx <= 0} onClick={() => setGroupIdx((i) => Math.max(0, i - 1))}>
+                  {str.checklistNavPrevious}
+                </GhostButton>
+                <GhostButton
+                  type="button"
+                  disabled={groupIdx >= groups.length - 1}
+                  onClick={() => setGroupIdx((i) => Math.min(groups.length - 1, i + 1))}
+                >
+                  {str.checklistNavNext}
+                </GhostButton>
+              </div>
+            </>
+          );
+        })() : displayMode === "ONE_BY_ONE" && flatItems.length > 0 ? (() => {
+          const it = flatItems[Math.min(oneByOneIdx, flatItems.length - 1)];
+          const showSec = showAllAtOnceSectionHeaders;
+          return (
+            <>
+              {showSec ? (
+                <p style={{ color: t.muted, fontSize: 13, margin: "0 0 12px" }}>
+                  {str.sectionLabel}: {normalizeGroupKeyForDisplay(it)}
+                </p>
+              ) : null}
+              <SupervisorChecklistField key={it.id} item={it} value={answers[it.id]} onChange={(v) => setAnswer(it.id, v)} />
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 16, marginBottom: 16, gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <GhostButton type="button" disabled={oneByOneIdx <= 0} onClick={() => setOneByOneIdx((i) => Math.max(0, i - 1))}>
+                  {str.checklistNavPrevious}
+                </GhostButton>
+                <span style={{ color: t.muted, fontSize: 13, fontWeight: 600 }}>
+                  {oneByOneIdx + 1} / {flatItems.length}
+                </span>
+                <GhostButton
+                  type="button"
+                  disabled={oneByOneIdx >= flatItems.length - 1}
+                  onClick={() => setOneByOneIdx((i) => Math.min(flatItems.length - 1, i + 1))}
+                >
+                  {str.checklistNavNext}
+                </GhostButton>
+              </div>
+            </>
+          );
+        })() : (
+          groups.map((g) => (
+            <div key={g.key} style={{ marginBottom: 4 }}>
+              {showAllAtOnceSectionHeaders ? (
+                <h3
+                  style={{
+                    fontSize: 15,
+                    fontWeight: 600,
+                    margin: "16px 0 10px",
+                    color: t.text,
+                    borderBottom: `1px solid ${t.line}`,
+                    paddingBottom: 6
+                }}
+                >
+                  {g.key}
+                </h3>
+              ) : null}
+              {g.items.map((it) => (
+                <SupervisorChecklistField key={it.id} item={it} value={answers[it.id]} onChange={(v) => setAnswer(it.id, v)} />
+              ))}
+            </div>
+          ))
+        )}
         <PrimaryButton type="submit" disabled={busy}>
           {busy ? str.submittingEllipsis : str.submitVisit}
         </PrimaryButton>
@@ -5287,7 +5792,7 @@ function SupervisorMyAssignmentsPage({ headers }) {
                   <div>
                     <div style={{ fontWeight: 600 }}>{short}</div>
                     <div style={{ fontSize: 13, color: t.muted, marginTop: 4 }}>
-                      {str.targetPrefix} {a.targetType || "—"} · {str.duePrefix} {a.dueDate || str.notSet}
+                      {str.targetPrefix} {formatTargetWithGrade(a.targetType, a.targetGradeCode)} · {str.duePrefix} {a.dueDate || str.notSet}
                     </div>
                     <div style={{ fontSize: 12, color: t.muted, marginTop: 4 }}>
                       {str.statusPrefix} {String(status).replace(/_/g, " ")}
@@ -5323,6 +5828,8 @@ function AssignmentsPage({ headers }) {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteAssignmentId, setDeleteAssignmentId] = useState("");
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [message, setMessage] = useState(null);
   const [form, setForm] = useState({
     checklistId: "",
@@ -5331,7 +5838,15 @@ function AssignmentsPage({ headers }) {
     targetType: "SCHOOL",
     schoolId: "",
     teacherId: "",
+    targetGradeCode: "",
     staffUserId: "",
+    dueDate: ""
+  });
+  const [bulkForm, setBulkForm] = useState({
+    checklistId: "",
+    checklistVersionId: "",
+    schoolIds: [],
+    supervisorIds: [],
     dueDate: ""
   });
 
@@ -5350,6 +5865,10 @@ function AssignmentsPage({ headers }) {
     if (!form.checklistId) return;
     fetch(`${API_BASE}/checklists/${form.checklistId}/versions`, { headers }).then((r) => r.json()).then(setVersions);
   }, [form.checklistId, headers]);
+  useEffect(() => {
+    if (!bulkForm.checklistId) return;
+    fetch(`${API_BASE}/checklists/${bulkForm.checklistId}/versions`, { headers }).then((r) => r.json()).then(setVersions);
+  }, [bulkForm.checklistId, headers]);
 
   const toLocalDatetimeValue = (iso) => {
     if (!iso) return "";
@@ -5368,6 +5887,7 @@ function AssignmentsPage({ headers }) {
       targetType: "SCHOOL",
       schoolId: "",
       teacherId: "",
+      targetGradeCode: "",
       staffUserId: "",
       dueDate: ""
     });
@@ -5383,6 +5903,7 @@ function AssignmentsPage({ headers }) {
       targetType: row.targetType ?? "SCHOOL",
       schoolId: row.schoolId ?? "",
       teacherId: row.teacherId ?? "",
+      targetGradeCode: row.targetGradeCode ?? "",
       staffUserId: row.staffUserId ?? "",
       dueDate: toLocalDatetimeValue(row.dueDate)
     });
@@ -5401,6 +5922,7 @@ function AssignmentsPage({ headers }) {
         targetType: form.targetType,
         schoolId: ASSIGNMENT_SCHOOL_TARGETS.has(form.targetType) ? form.schoolId : null,
         teacherId: form.targetType === "TEACHER" ? form.teacherId : null,
+        targetGradeCode: form.targetType === "TEACHER" ? form.targetGradeCode : null,
         staffUserId: form.targetType === "SCHOOL_STAFF" ? form.staffUserId : null,
         dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : null
       };
@@ -5435,6 +5957,52 @@ function AssignmentsPage({ headers }) {
     setDeleteModalOpen(true);
   };
 
+  const openBulkAssignments = () => {
+    setBulkForm({
+      checklistId: "",
+      checklistVersionId: "",
+      schoolIds: [],
+      supervisorIds: [],
+      dueDate: ""
+    });
+    setBulkModalOpen(true);
+  };
+
+  const saveBulkAssignments = async (e) => {
+    e.preventDefault();
+    if (!bulkForm.checklistId || !bulkForm.checklistVersionId) return;
+    setBulkBusy(true);
+    try {
+      const payload = {
+        checklistId: bulkForm.checklistId,
+        checklistVersionId: bulkForm.checklistVersionId,
+        schoolIds: bulkForm.schoolIds,
+        supervisorIds: bulkForm.supervisorIds,
+        dueDate: bulkForm.dueDate ? new Date(bulkForm.dueDate).toISOString() : null
+      };
+      const res = await fetch(`${API_BASE}/assignments/bulk-create`, {
+        method: "POST",
+        headers: jsonHeaders(headers),
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.message || "Bulk assignment failed");
+      }
+      const result = await res.json();
+      setMessage({
+        type: "ok",
+        text: `Bulk created ${result.created || 0}. Skipped duplicates: ${result.skippedDuplicate || 0}, no supervisor: ${result.skippedNoEligibleSupervisor || 0}, out of scope: ${result.skippedOutOfScope || 0}.`
+      });
+      setBulkModalOpen(false);
+      await load();
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const confirmDeleteAssignment = async (e) => {
     e.preventDefault();
     if (!deleteAssignmentId) return;
@@ -5462,12 +6030,47 @@ function AssignmentsPage({ headers }) {
     }
   };
 
+  const checklistById = useMemo(
+    () => new Map((checklists || []).map((c) => [c.id, c])),
+    [checklists]
+  );
+  const supervisorById = useMemo(
+    () => new Map((supervisors || []).map((u) => [u.id, u])),
+    [supervisors]
+  );
+  const schoolById = useMemo(
+    () => new Map((schools || []).map((s) => [s.id, s])),
+    [schools]
+  );
+  const teacherById = useMemo(
+    () => new Map((teachers || []).map((t) => [t.id, t])),
+    [teachers]
+  );
+  const staffById = useMemo(
+    () => new Map((schoolStuff || []).map((s) => [s.id, s])),
+    [schoolStuff]
+  );
+
+  const exportAssignments = async () => {
+    try {
+      await downloadXlsx(`${API_BASE}/assignments/export`, headers, "assignments-export.xlsx");
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    }
+  };
+
   return (
     <>
       <PageHeader
         title={str.assignmentsTitle}
         subtitle={str.assignmentsSubtitle}
-        action={<PrimaryButton onClick={openCreateAssignment}>{str.newAssignment}</PrimaryButton>}
+        action={
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <PrimaryButton onClick={openCreateAssignment}>{str.newAssignment}</PrimaryButton>
+            <GhostButton onClick={openBulkAssignments}>Bulk assign</GhostButton>
+            <GhostButton onClick={exportAssignments}>Export</GhostButton>
+          </div>
+        }
       />
       {message && <Alert type={message.type}>{message.text}</Alert>}
       <GhostButton onClick={load} style={{ marginBottom: 12 }}>
@@ -5475,6 +6078,11 @@ function AssignmentsPage({ headers }) {
       </GhostButton>
       <DataTable
         columns={[
+          { key: "checklist", label: "Checklist" },
+          { key: "targetName", label: "Target name" },
+          { key: "position", label: "Position" },
+          { key: "targetSchool", label: "Target school" },
+          { key: "supervisor", label: "Supervisor" },
           { key: "targetType", label: str.reportColTarget },
           { key: "status", label: str.columnStatus },
           { key: "dueDate", label: str.columnDue },
@@ -5483,7 +6091,32 @@ function AssignmentsPage({ headers }) {
         rows={items}
         empty={str.noAssignmentsRows}
         renderCell={(key, row) => {
+          if (key === "checklist") return checklistById.get(row.checklistId)?.title || "—";
+          if (key === "targetName") {
+            if (row.targetType === "TEACHER") return teacherById.get(row.teacherId)?.name || "—";
+            if (row.targetType === "SCHOOL_STAFF") return staffById.get(row.staffUserId)?.fullName || "—";
+            if (row.targetType === "DIRECTOR") {
+              const school = schoolById.get(row.schoolId);
+              const director = (schoolStuff || []).find((s) => s.type === "SCHOOL_DIRECTOR" && s.schoolId === row.schoolId);
+              return director?.fullName || school?.name || "—";
+            }
+            return schoolById.get(row.schoolId)?.name || "—";
+          }
+          if (key === "position") {
+            if (row.targetType === "TEACHER") return "Teacher";
+            if (row.targetType === "DIRECTOR") return "School Director";
+            if (row.targetType === "SCHOOL_STAFF") return staffById.get(row.staffUserId)?.type || "School Staff";
+            return "School";
+          }
+          if (key === "targetSchool") {
+            if (row.schoolId) return schoolById.get(row.schoolId)?.name || "—";
+            if (row.targetType === "TEACHER") return teacherById.get(row.teacherId)?.schoolName || "—";
+            if (row.targetType === "SCHOOL_STAFF") return staffById.get(row.staffUserId)?.schoolName || "—";
+            return "—";
+          }
+          if (key === "supervisor") return supervisorById.get(row.supervisorId)?.fullName || "—";
           if (key === "dueDate") return row.dueDate || "—";
+          if (key === "targetType") return formatTargetWithGrade(row.targetType, row.targetGradeCode);
           if (key === "actions") {
             const isPending = row.status === "PENDING";
             return (
@@ -5500,6 +6133,90 @@ function AssignmentsPage({ headers }) {
           return row[key];
         }}
       />
+
+      <Modal
+        open={bulkModalOpen}
+        onClose={() => setBulkModalOpen(false)}
+        title="Bulk create assignments"
+        wide
+      >
+        <form onSubmit={saveBulkAssignments} style={{ display: "grid", gap: 12 }}>
+          <div>
+            <Label>Checklist</Label>
+            <select
+              required
+              value={bulkForm.checklistId}
+              onChange={(e) => setBulkForm((p) => ({ ...p, checklistId: e.target.value, checklistVersionId: "" }))}
+              style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}`, width: "100%" }}
+            >
+              <option value="">{str.selectChecklist}</option>
+              {checklists.map((c) => (
+                <option key={c.id} value={c.id}>{c.title}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label>Checklist version</Label>
+            <select
+              required
+              value={bulkForm.checklistVersionId}
+              onChange={(e) => setBulkForm((p) => ({ ...p, checklistVersionId: e.target.value }))}
+              style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}`, width: "100%" }}
+            >
+              <option value="">{str.selectVersion}</option>
+              {versions.map((v) => (
+                <option key={v.id} value={v.id}>v{v.versionNo} ({v.status})</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label>Schools (optional, defaults to all in scope)</Label>
+            <select
+              multiple
+              value={bulkForm.schoolIds}
+              onChange={(e) => setBulkForm((p) => ({
+                ...p,
+                schoolIds: Array.from(e.target.selectedOptions).map((o) => o.value)
+              }))}
+              style={{ minHeight: 120, padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}`, width: "100%" }}
+            >
+              {schools.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label>Supervisors pool (optional, defaults to all in scope)</Label>
+            <select
+              multiple
+              value={bulkForm.supervisorIds}
+              onChange={(e) => setBulkForm((p) => ({
+                ...p,
+                supervisorIds: Array.from(e.target.selectedOptions).map((o) => o.value)
+              }))}
+              style={{ minHeight: 120, padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}`, width: "100%" }}
+            >
+              {supervisors.map((u) => (
+                <option key={u.id} value={u.id}>{u.fullName}</option>
+              ))}
+            </select>
+          </div>
+          <p style={{ margin: 0, fontSize: 13, color: t.muted }}>
+            Grade scope is taken from the selected checklist grade group; bulk matching uses that together with each school.
+          </p>
+          <div>
+            <Label>Due date override (optional)</Label>
+            <Input
+              type="datetime-local"
+              value={bulkForm.dueDate}
+              onChange={(e) => setBulkForm((p) => ({ ...p, dueDate: e.target.value }))}
+            />
+          </div>
+          <PrimaryButton type="submit" disabled={bulkBusy}>
+            {bulkBusy ? "Creating..." : "Create bulk assignments"}
+          </PrimaryButton>
+        </form>
+      </Modal>
 
       <Modal
         open={modalOpen}
@@ -5568,6 +6285,7 @@ function AssignmentsPage({ headers }) {
                   targetType: next,
                   schoolId: ASSIGNMENT_SCHOOL_TARGETS.has(next) ? p.schoolId : "",
                   teacherId: next === "TEACHER" ? p.teacherId : "",
+                  targetGradeCode: next === "TEACHER" ? p.targetGradeCode : "",
                   staffUserId: next === "SCHOOL_STAFF" ? p.staffUserId : ""
                 }));
               }}
@@ -5612,6 +6330,24 @@ function AssignmentsPage({ headers }) {
                 <option value="">{str.selectTeacher}</option>
                 {teachers.map((teacher) => (
                   <option key={teacher.id} value={teacher.id}>{teacher.name} · {teacher.subject}{teacher.schoolName ? ` · ${teacher.schoolName}` : ""}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          {form.targetType === "TEACHER" && (
+            <div>
+              <Label htmlFor="assignment-form-target-grade">Target grade</Label>
+              <select
+                id="assignment-form-target-grade"
+                required
+                value={form.targetGradeCode}
+                onChange={(e) => setForm((p) => ({ ...p, targetGradeCode: e.target.value }))}
+                aria-label="Target grade"
+                style={{ padding: 10, fontFamily: t.font, borderRadius: t.radius, border: `1px solid ${t.line}`, width: "100%" }}
+              >
+                <option value="">Select grade…</option>
+                {CANONICAL_GRADE_CODES.map((gradeCode) => (
+                  <option key={gradeCode} value={gradeCode}>{gradeCode}</option>
                 ))}
               </select>
             </div>
@@ -5676,8 +6412,67 @@ function AssignmentsPage({ headers }) {
   );
 }
 
+function MiniStatCard({ label, value }) {
+  return (
+    <Card style={{ padding: 12 }}>
+      <div style={{ fontSize: 12, color: t.muted }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>{value}</div>
+    </Card>
+  );
+}
+
+function SimplePieChart({ title, data, colors }) {
+  const safeData = (data || []).filter((d) => Number(d.value) > 0);
+  const total = safeData.reduce((sum, d) => sum + d.value, 0);
+  const radius = 52;
+  const cx = 64;
+  const cy = 64;
+  let running = -Math.PI / 2;
+
+  const arcs = safeData.map((d, idx) => {
+    const angle = (d.value / total) * Math.PI * 2;
+    const start = running;
+    const end = running + angle;
+    running = end;
+    const x1 = cx + radius * Math.cos(start);
+    const y1 = cy + radius * Math.sin(start);
+    const x2 = cx + radius * Math.cos(end);
+    const y2 = cy + radius * Math.sin(end);
+    const largeArc = angle > Math.PI ? 1 : 0;
+    const color = colors[idx % colors.length];
+    const path = `M ${cx} ${cy} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z`;
+    return { path, color, label: d.label, value: d.value };
+  });
+
+  return (
+    <Card style={{ padding: 14 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{title}</div>
+      {total === 0 ? (
+        <div style={{ color: t.muted, fontSize: 13 }}>No data</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 12, alignItems: "center" }}>
+          <svg width="128" height="128" viewBox="0 0 128 128" aria-label={title}>
+            {arcs.map((a, idx) => (
+              <path key={idx} d={a.path} fill={a.color} stroke={t.card} strokeWidth="1" />
+            ))}
+          </svg>
+          <div style={{ display: "grid", gap: 6 }}>
+            {arcs.map((a, idx) => (
+              <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 999, background: a.color, display: "inline-block" }} />
+                <span style={{ flex: 1 }}>{a.label}</span>
+                <strong>{a.value}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function SupervisionActivityPage({ headers }) {
-  const { str } = useI18n();
+  const { str, locale } = useI18n();
   const [summaries, setSummaries] = useState([]);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selected, setSelected] = useState(null);
@@ -5713,25 +6508,85 @@ function SupervisionActivityPage({ headers }) {
     }
   };
 
+  const exportActivity = async () => {
+    try {
+      await downloadXlsx(`${API_BASE}/supervision/export`, headers, "activity-export.xlsx");
+    } catch (err) {
+      setError(err.message || str.activityLoadFailed);
+    }
+  };
+
+  const tableRows = useMemo(
+    () =>
+      summaries.map((s) => {
+        const openAssignments = (s.pendingAssignments || 0) + (s.inProgressAssignments || 0);
+        const totalAssignments = openAssignments + (s.completedAssignments || 0);
+        const coveragePct = totalAssignments > 0 ? Math.round(((s.completedAssignments || 0) * 100) / totalAssignments) : 0;
+        return {
+          ...s,
+          id: s.supervisorId,
+          name: `${s.fullName} (${s.username})`,
+          openAssignments,
+          coveragePct: `${coveragePct}%`
+        };
+      }),
+    [summaries]
+  );
+
+  const analytics = useMemo(() => {
+    const targetTypeMap = new Map();
+    const locationMap = new Map();
+    const gradeMap = new Map();
+    let totalDistance = 0;
+    let distanceCount = 0;
+    for (const v of visits) {
+      const targetType = v.targetType || "—";
+      targetTypeMap.set(targetType, (targetTypeMap.get(targetType) || 0) + 1);
+      const loc = v.locationStatus || "UNKNOWN";
+      locationMap.set(loc, (locationMap.get(loc) || 0) + 1);
+      if (v.targetGradeCode) gradeMap.set(v.targetGradeCode, (gradeMap.get(v.targetGradeCode) || 0) + 1);
+      if (typeof v.distanceFromSchoolMeters === "number") {
+        totalDistance += v.distanceFromSchoolMeters;
+        distanceCount += 1;
+      }
+    }
+    const locationOk = (locationMap.get("WITHIN_RANGE") || 0) + (locationMap.get("MANUAL_OVERRIDE") || 0);
+    const geoCompliancePct = visits.length > 0 ? Math.round((locationOk * 100) / visits.length) : 0;
+    return {
+      targetTypeData: Array.from(targetTypeMap.entries()).map(([label, value]) => ({ label, value })),
+      locationData: Array.from(locationMap.entries()).map(([label, value]) => ({ label, value })),
+      gradeData: Array.from(gradeMap.entries())
+        .map(([label, value]) => ({ label, value }))
+        .sort((a, b) => b.value - a.value),
+      geoCompliancePct,
+      avgDistance: distanceCount > 0 ? Math.round(totalDistance / distanceCount) : null
+    };
+  }, [visits]);
+
   return (
     <>
       <PageHeader
         title={str.supervisorActivityTitle}
         subtitle={str.supervisorActivitySubtitle}
-        action={<GhostButton onClick={loadSummaries}>{str.refresh}</GhostButton>}
+        action={
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <GhostButton onClick={loadSummaries}>{str.refresh}</GhostButton>
+            <GhostButton onClick={exportActivity}>Export</GhostButton>
+          </div>
+        }
       />
       {error && <Alert type="error">{error}</Alert>}
       <DataTable
         columns={[
           { key: "name", label: str.activitySupervisorCol },
           { key: "visitsCompleted", label: str.activityVisitsCol },
+          { key: "openAssignments", label: "Open" },
           { key: "completedAssignments", label: str.activityDoneCol },
-          { key: "pendingAssignments", label: str.activityPendingCol },
-          { key: "inProgressAssignments", label: str.activityActiveCol },
           { key: "overdueAssignments", label: str.activityOverdueCol },
+          { key: "coveragePct", label: "Coverage" },
           { key: "_", label: "" }
         ]}
-        rows={summaries.map((s) => ({ ...s, id: s.supervisorId, name: `${s.fullName} (${s.username})` }))}
+        rows={tableRows}
         empty={str.activityNoSupervisors}
         renderCell={(key, row) => {
           if (key === "_") {
@@ -5750,21 +6605,78 @@ function SupervisionActivityPage({ headers }) {
         {loadingVisits ? (
           <p style={{ color: t.muted }}>{str.loadingEllipsis}</p>
         ) : (
-          <ul style={{ margin: 0, paddingLeft: 18, listStyle: "disc" }}>
-            {visits.length === 0 && <li style={{ color: t.muted }}>{str.noCompletedVisits}</li>}
-            {visits.map((v) => (
-              <li key={v.reviewId} style={{ marginBottom: 12 }}>
-                <strong>{v.checklistTitle}</strong> · {v.targetType}
-                {v.schoolName ? ` · ${v.schoolName}` : ""}
-                {v.targetType === "TEACHER" && v.teacherName ? ` · ${v.teacherName}` : ""}
-                {v.targetType === "SCHOOL_STAFF" && v.staffFullName ? ` · ${v.staffFullName}` : ""}
-                <div style={{ fontSize: 12, color: t.muted, marginTop: 4 }}>
-                  {v.completedAt} · {v.locationStatus || "—"}
-                  {v.distanceFromSchoolMeters != null ? ` · ${Math.round(v.distanceFromSchoolMeters)} m` : ""}
+          <div style={{ display: "grid", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(160px, 1fr))", gap: 10 }}>
+              <MiniStatCard label="Completed visits" value={visits.length} />
+              <MiniStatCard label="Geo compliance" value={`${analytics.geoCompliancePct}%`} />
+              <MiniStatCard label="Avg distance" value={analytics.avgDistance == null ? "—" : `${analytics.avgDistance} m`} />
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <SimplePieChart
+                title="Visits by target type"
+                data={analytics.targetTypeData}
+                colors={["#111827", "#2563eb", "#7c3aed", "#059669", "#d97706"]}
+              />
+              <SimplePieChart
+                title="Location status mix"
+                data={analytics.locationData}
+                colors={["#059669", "#16a34a", "#d97706", "#dc2626", "#6b7280"]}
+              />
+            </div>
+
+            <Card style={{ padding: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Teacher grade coverage</div>
+              {analytics.gradeData.length === 0 ? (
+                <div style={{ color: t.muted, fontSize: 13 }}>No teacher-grade visits in this slice.</div>
+              ) : (
+                <div style={{ display: "grid", gap: 8 }}>
+                  {analytics.gradeData.map((g) => {
+                    const width = Math.max(8, Math.round((g.value * 100) / Math.max(...analytics.gradeData.map((x) => x.value))));
+                    return (
+                      <div key={g.label} style={{ display: "grid", gridTemplateColumns: "60px 1fr 32px", alignItems: "center", gap: 8 }}>
+                        <div style={{ fontSize: 12 }}>{g.label}</div>
+                        <div style={{ background: "#eef2ff", borderRadius: 8, overflow: "hidden", height: 10 }}>
+                          <div style={{ width: `${width}%`, height: "100%", background: "#4f46e5" }} />
+                        </div>
+                        <div style={{ fontSize: 12, textAlign: "right" }}>{g.value}</div>
+                      </div>
+                    );
+                  })}
                 </div>
-              </li>
-            ))}
-          </ul>
+              )}
+            </Card>
+
+            <DataTable
+              columns={[
+                { key: "completedAt", label: str.reportColCompleted },
+                { key: "checklistTitle", label: str.reportColChecklist },
+                { key: "targetType", label: str.reportColTarget },
+                { key: "place", label: str.reportColPlace },
+                { key: "dueDate", label: str.columnDue },
+                { key: "geo", label: str.reportColGeo }
+              ]}
+              rows={visits}
+              empty={str.noCompletedVisits}
+              renderCell={(key, row) => {
+                if (key === "completedAt") return formatReportInstant(row.completedAt, locale);
+                if (key === "targetType") return formatTargetWithGrade(row.targetType, row.targetGradeCode);
+                if (key === "place") {
+                  if (row.targetType === "TEACHER" && row.teacherName) return `${row.teacherName}${row.schoolName ? ` · ${row.schoolName}` : ""}`;
+                  if (row.targetType === "SCHOOL_STAFF" && row.staffFullName) return `${row.staffFullName}${row.schoolName ? ` · ${row.schoolName}` : ""}`;
+                  return row.schoolName || "—";
+                }
+                if (key === "dueDate") return formatReportInstant(row.dueDate, locale);
+                if (key === "geo") {
+                  const parts = [];
+                  if (row.locationStatus) parts.push(String(row.locationStatus).replace(/_/g, " "));
+                  if (row.distanceFromSchoolMeters != null) parts.push(`${Math.round(row.distanceFromSchoolMeters)} m`);
+                  return parts.length ? parts.join(" · ") : "—";
+                }
+                return row[key] ?? "—";
+              }}
+            />
+          </div>
         )}
       </Modal>
     </>
@@ -5898,7 +6810,7 @@ function ReportsPage({ headers }) {
               const u = row.supervisorUsername ? ` (${row.supervisorUsername})` : "";
               return `${n}${u}`;
             }
-            if (key === "target") return row.targetType || "—";
+            if (key === "target") return formatTargetWithGrade(row.targetType, row.targetGradeCode);
             if (key === "place") {
               if (row.targetType === "TEACHER" && row.teacherName) return row.teacherName;
               if (row.targetType === "SCHOOL_STAFF" && row.staffFullName) return row.staffFullName;

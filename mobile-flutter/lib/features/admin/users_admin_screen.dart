@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:open_file/open_file.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
 import '../../core/auth/session_store.dart';
 import '../../core/grades/grade_codes.dart';
 import '../../core/network/api_client.dart';
@@ -40,6 +44,66 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
       _error = ApiClient.messageFromError(e);
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _saveAndOpenXlsx(List<int> bytes, String filename) async {
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/$filename');
+    await file.writeAsBytes(bytes, flush: true);
+    await OpenFile.open(file.path);
+  }
+
+  Future<void> _downloadTemplate() async {
+    try {
+      final bytes = await ApiClient.downloadUsersTemplate();
+      await _saveAndOpenXlsx(bytes, 'users-template.xlsx');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(ApiClient.messageFromError(e))));
+      }
+    }
+  }
+
+  Future<void> _exportData() async {
+    try {
+      final bytes = await ApiClient.downloadUsersExport();
+      await _saveAndOpenXlsx(bytes, 'users-export.xlsx');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(ApiClient.messageFromError(e))));
+      }
+    }
+  }
+
+  Future<void> _importData() async {
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['xlsx'],
+        withData: true,
+      );
+      final f = picked?.files.single;
+      if (f == null || f.bytes == null) return;
+      final result = await ApiClient.importUsers(
+        filename: f.name,
+        bytes: f.bytes!,
+      );
+      final created = result['created'] ?? 0;
+      final failed = result['failed'] ?? 0;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Import finished. Created: $created, Failed: $failed')),
+        );
+      }
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(ApiClient.messageFromError(e))));
+      }
     }
   }
 
@@ -533,6 +597,9 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
       appBar: AppBar(
         title: const Text('Users'),
         actions: [
+          IconButton(icon: const Icon(Icons.file_download_outlined), tooltip: 'Download template', onPressed: _downloadTemplate),
+          IconButton(icon: const Icon(Icons.upload_file_outlined), tooltip: 'Import', onPressed: _importData),
+          IconButton(icon: const Icon(Icons.download_outlined), tooltip: 'Export', onPressed: _exportData),
           IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
           PopupMenuButton<String>(
             onSelected: (v) {

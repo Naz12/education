@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../l10n/app_strings.dart';
 import '../../../core/location/location_service.dart';
 import '../../../core/network/api_client.dart';
 import '../../signature/presentation/signature_screen.dart';
@@ -23,9 +24,10 @@ class _ChecklistRendererScreenState extends State<ChecklistRendererScreen> {
   String? _error;
 
   String get _checklistTitle {
+    final s = AppStrings.of(context);
     final n = widget.checklistJson['checklistName'] ?? widget.checklistJson['name'];
     if (n != null && n.toString().isNotEmpty) return n.toString();
-    return 'Checklist';
+    return s.checklist;
   }
 
   Future<void> _submitReview() async {
@@ -75,7 +77,7 @@ class _ChecklistRendererScreenState extends State<ChecklistRendererScreen> {
     } catch (e) {
       HapticFeedback.heavyImpact();
       final msg = ApiClient.messageFromError(e);
-      setState(() => _error = 'Submit failed: $msg');
+      setState(() => _error = AppStrings.of(context).submitFailed(msg));
       if (mounted) {
         final csSnack = Theme.of(context).colorScheme;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -94,6 +96,7 @@ class _ChecklistRendererScreenState extends State<ChecklistRendererScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final mode = widget.checklistJson['displayMode'] as String? ?? 'ALL_AT_ONCE';
     final items = (widget.checklistJson['items'] as List).cast<Map<String, dynamic>>();
     final cs = Theme.of(context).colorScheme;
@@ -178,7 +181,7 @@ class _ChecklistRendererScreenState extends State<ChecklistRendererScreen> {
           : FloatingActionButton.extended(
               onPressed: _submitReview,
               icon: const Icon(Icons.check_rounded),
-              label: Text(widget.assignmentId == null ? 'Continue' : 'Submit review'),
+              label: Text(widget.assignmentId == null ? s.continueLabel : s.submitReview),
             ),
     );
   }
@@ -190,6 +193,13 @@ class _ChecklistRendererScreenState extends State<ChecklistRendererScreen> {
       if (!keys.contains(k)) keys.add(k);
     }
     return keys;
+  }
+
+  bool _shouldShowAllAtOnceSectionHeaders(List<Map<String, dynamic>> items) {
+    final keys = _groupKeys(items);
+    if (keys.length > 1) return true;
+    if (keys.isNotEmpty && keys.first != 'General') return true;
+    return false;
   }
 
   String? _itemKey(Map<String, dynamic> item) {
@@ -210,18 +220,38 @@ class _ChecklistRendererScreenState extends State<ChecklistRendererScreen> {
   }
 
   Widget _buildAllAtOnce(List<Map<String, dynamic>> items) {
+    final showHeaders = _shouldShowAllAtOnceSectionHeaders(items);
+    String? lastSectionKey;
+    final children = <Widget>[];
+    for (final item in items) {
+      final k = item['groupKey']?.toString() ?? 'General';
+      if (showHeaders && k != lastSectionKey) {
+        lastSectionKey = k;
+        children.add(
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
+            child: Text(
+              k,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+            ),
+          ),
+        );
+      }
+      final key = _itemKey(item);
+      children.add(
+        ChecklistItemWidget(
+          item: item,
+          value: key == null ? null : _answers[key],
+          onChanged: (v) => _setAnswer(key, v),
+        ),
+      );
+    }
     return ListView(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 100),
-      children: items
-          .map((item) {
-            final key = _itemKey(item);
-            return ChecklistItemWidget(
-              item: item,
-              value: key == null ? null : _answers[key],
-              onChanged: (v) => _setAnswer(key, v),
-            );
-          })
-          .toList(),
+      children: children,
     );
   }
 
@@ -266,8 +296,30 @@ class _ChecklistRendererScreenState extends State<ChecklistRendererScreen> {
     }
     final item = items[_currentIndex];
     final key = _itemKey(item);
+    final showSec = _shouldShowAllAtOnceSectionHeaders(items);
+    final secName = item['groupKey']?.toString() ?? 'General';
     return Column(
       children: [
+        if (showSec)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+            child: Row(
+              children: [
+                Icon(Icons.folder_outlined, size: 20, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    secName,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),

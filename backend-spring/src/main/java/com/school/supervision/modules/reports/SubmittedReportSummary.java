@@ -13,6 +13,7 @@ public record SubmittedReportSummary(
         Instant startedAt,
         Instant completedAt,
         String targetType,
+        String targetGradeCode,
         UUID schoolId,
         String schoolName,
         UUID teacherId,

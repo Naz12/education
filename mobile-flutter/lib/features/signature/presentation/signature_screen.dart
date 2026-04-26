@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:signature/signature.dart';
 import 'dart:convert';
+import '../../../l10n/app_strings.dart';
 import '../../../core/network/api_client.dart';
 
 class SignatureScreen extends StatefulWidget {
@@ -34,7 +35,7 @@ class _SignatureScreenState extends State<SignatureScreen> {
       if (teacherBytes == null || directorBytes == null) {
         setState(() {
           _submitting = false;
-          _message = 'Both signatures are required.';
+          _message = AppStrings.of(context).bothSignaturesRequired;
         });
         return;
       }
@@ -51,32 +52,39 @@ class _SignatureScreenState extends State<SignatureScreen> {
       if (!mounted) return;
       setState(() {
         _submitting = false;
-        _message = 'Signatures saved successfully.';
+        _message = AppStrings.of(context).signaturesSaved;
       });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppStrings.of(context).signaturesSaved)),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      if (!mounted) return;
+      Navigator.of(context).popUntil((route) => route.isFirst);
     } catch (e) {
       setState(() {
         _submitting = false;
-        _message = 'Failed to submit signatures: $e';
+        _message = AppStrings.of(context).signaturesFailed(e.toString());
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Signatures')),
+      appBar: AppBar(title: Text(s.signatures)),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: ListView(
           children: [
-            Text('Teacher Signature', style: Theme.of(context).textTheme.titleMedium),
+            Text(s.teacherSignature, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: Signature(controller: _teacherController, height: 140, backgroundColor: Colors.grey.shade200),
             ),
             const SizedBox(height: 16),
-            Text('School Director Signature', style: Theme.of(context).textTheme.titleMedium),
+            Text(s.schoolDirectorSignature, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
@@ -86,7 +94,7 @@ class _SignatureScreenState extends State<SignatureScreen> {
             FilledButton.icon(
               onPressed: _submitting ? null : _submitSignatures,
               icon: const Icon(Icons.verified_outlined),
-              label: Text(_submitting ? 'Submitting...' : 'Submit Signatures'),
+              label: Text(_submitting ? s.submitting : s.submitSignatures),
             ),
             if (_message != null) ...[
               const SizedBox(height: 12),

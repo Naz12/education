@@ -5,6 +5,7 @@ import com.school.supervision.common.domain.DomainEnums.TargetType;
 import com.school.supervision.common.domain.TenantScopedEntity;
 import jakarta.persistence.*;
 
+import java.time.Instant;
 import java.util.UUID;
 
 @Entity
@@ -35,12 +36,23 @@ public class Checklist extends TenantScopedEntity {
     @Column(name = "auto_assign_on_publish", nullable = false)
     private boolean autoAssignOnPublish = true;
 
+    @Column(name = "auto_assign_due_at")
+    private Instant autoAssignDueAt;
+
     public boolean isAutoAssignOnPublish() {
         return autoAssignOnPublish;
     }
 
     public void setAutoAssignOnPublish(boolean autoAssignOnPublish) {
         this.autoAssignOnPublish = autoAssignOnPublish;
+    }
+
+    public Instant getAutoAssignDueAt() {
+        return autoAssignDueAt;
+    }
+
+    public void setAutoAssignDueAt(Instant autoAssignDueAt) {
+        this.autoAssignDueAt = autoAssignDueAt;
     }
 
     public String getTitle() {

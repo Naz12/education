@@ -114,6 +114,22 @@ class AppStrings {
         'No role-specific metrics for this user.',
         'ለዚህ ተጠቃሚ የሚመለከት ልዩ መለኪያ የለም።',
       );
+  String get signatures => _e('Signatures', 'ፊርማዎች');
+  String get teacherSignature => _e('Teacher Signature', 'የመምህር ፊርማ');
+  String get schoolDirectorSignature =>
+      _e('School Director Signature', 'የትምህርት ቤት ዳይሬክተር ፊርማ');
+  String get bothSignaturesRequired =>
+      _e('Both signatures are required.', 'ሁለቱም ፊርማዎች ያስፈልጋሉ።');
+  String get submitSignatures => _e('Submit Signatures', 'ፊርማዎችን አስገባ');
+  String get submitting => _e('Submitting...', 'በማስገባት ላይ...');
+  String get signaturesSaved =>
+      _e('Checklist submitted successfully.', 'ዝርዝሩ በተሳካ ሁኔታ ተልኳል።');
+  String signaturesFailed(String err) =>
+      _e('Failed to submit signatures: $err', 'ፊርማዎችን ማስገባት አልተሳካም፦ $err');
+  String get checklist => _e('Checklist', 'የማረጋገጫ ዝርዝር');
+  String submitFailed(String msg) => _e('Submit failed: $msg', 'ማስገባት አልተሳካም፦ $msg');
+  String get continueLabel => _e('Continue', 'ቀጥል');
+  String get submitReview => _e('Submit review', 'ግምገማ አስገባ');
 
   static int _i(dynamic v) {
     if (v == null) return 0;

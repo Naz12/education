@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.school.supervision.common.grades.GradeCodes;
 import com.school.supervision.common.tenant.TenantContext;
+import com.school.supervision.modules.importexport.ExcelWorkbookService;
 import com.school.supervision.modules.assignments.AssignmentRepository;
 import com.school.supervision.modules.organization.SchoolRepository;
 import com.school.supervision.modules.supervision.SupervisionStatsService;
@@ -15,9 +16,16 @@ import jakarta.validation.constraints.Size;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -33,6 +41,7 @@ public class UserController {
     private final AssignmentRepository assignmentRepository;
     private final ObjectMapper objectMapper;
     private final GeographyService geographyService;
+    private final ExcelWorkbookService excelWorkbookService;
 
     public UserController(UserRepository userRepository,
                           RoleRepository roleRepository,
@@ -41,7 +50,8 @@ public class UserController {
                           SchoolRepository schoolRepository,
                           AssignmentRepository assignmentRepository,
                           ObjectMapper objectMapper,
-                          GeographyService geographyService) {
+                          GeographyService geographyService,
+                          ExcelWorkbookService excelWorkbookService) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.passwordEncoder = passwordEncoder;
@@ -50,6 +60,7 @@ public class UserController {
         this.assignmentRepository = assignmentRepository;
         this.objectMapper = objectMapper;
         this.geographyService = geographyService;
+        this.excelWorkbookService = excelWorkbookService;
     }
 
     public record CreateUserRequest(@NotBlank String username,
@@ -100,6 +111,7 @@ public class UserController {
             List<String> supervisedGradeCodes,
             UUID weredaId
     ) {}
+    public record BulkImportResult(int created, int skipped, int failed, List<Map<String, String>> errors) {}
 
     @PostMapping
     public UUID create(Authentication authentication, @RequestBody CreateUserRequest request) {
@@ -130,6 +142,107 @@ public class UserController {
         return userRepository.findAllByOrganizationId(requireTenant()).stream()
                 .map(this::toProfile)
                 .toList();
+    }
+
+    @GetMapping("/template")
+    public ResponseEntity<byte[]> template(Authentication authentication) {
+        User current = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(current);
+        List<String> headers = List.of(
+                "roleType", "fullName", "username", "password", "email", "phone",
+                "city", "subCity", "wereda", "supervisedGradeCodes"
+        );
+        List<List<String>> sample = List.of(
+                List.of("SUPERVISOR", "Sample Supervisor", "supervisor.sample", "12345678", "sup@example.com", "0911000000",
+                        "Addis Ababa", "Lideta", "01", "KG1,KG2,1"),
+                List.of("CLUSTER_COORDINATOR", "Sample Coordinator", "coordinator.sample", "12345678", "coord@example.com", "0911000001",
+                        "", "", "", "")
+        );
+        List<String> notes = List.of(
+                "roleType supported values: SUPERVISOR, CLUSTER_COORDINATOR.",
+                "SUPERVISOR requires supervisedGradeCodes (comma-separated canonical grades).",
+                "For coordinator users, supervisedGradeCodes must be blank.",
+                "When created by CLUSTER_COORDINATOR, supervisor location inherits coordinator scope."
+        );
+        byte[] bytes = excelWorkbookService.buildTemplate("users", headers, sample, notes);
+        return xlsxAttachment("users-template.xlsx", bytes);
+    }
+
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> export(Authentication authentication) {
+        List<UserProfileResponse> users = list(authentication);
+        List<String> headers = List.of(
+                "id", "roleType", "fullName", "username", "email", "phone",
+                "city", "subCity", "wereda", "supervisedGradeCodes"
+        );
+        List<List<String>> rows = users.stream()
+                .filter(u -> u.roles() != null && (u.roles().contains("SUPERVISOR") || u.roles().contains("CLUSTER_COORDINATOR")))
+                .map(u -> List.of(
+                        u.id().toString(),
+                        u.roles().contains("SUPERVISOR") ? "SUPERVISOR" : "CLUSTER_COORDINATOR",
+                        nullToEmpty(u.fullName()),
+                        nullToEmpty(u.username()),
+                        nullToEmpty(u.email()),
+                        "",
+                        nullToEmpty(u.city()),
+                        nullToEmpty(u.subCity()),
+                        nullToEmpty(u.wereda()),
+                        String.join(",", u.supervisedGradeCodes() == null ? List.of() : u.supervisedGradeCodes())
+                ))
+                .toList();
+        byte[] bytes = excelWorkbookService.buildExport("users", headers, rows);
+        return xlsxAttachment("users-export-" + LocalDate.now() + ".xlsx", bytes);
+    }
+
+    @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public BulkImportResult bulkImport(Authentication authentication, @RequestParam("file") MultipartFile file) {
+        User current = requireCurrentUser(authentication);
+        requireAdminOrCoordinator(current);
+        UUID orgId = requireTenant();
+        List<Map<String, String>> rows = excelWorkbookService.parseRows(file);
+        int created = 0;
+        int skipped = 0;
+        List<Map<String, String>> errors = new ArrayList<>();
+        for (Map<String, String> row : rows) {
+            String rowNum = row.getOrDefault("__rowNum", "?");
+            try {
+                String roleType = required(row, "roleType").toUpperCase();
+                String username = required(row, "username").trim();
+                if (userRepository.existsByUsernameAndOrganizationId(username, orgId)) {
+                    skipped++;
+                    continue;
+                }
+                if ("SUPERVISOR".equals(roleType)) {
+                    CreateUserRequest req = new CreateUserRequest(
+                            username,
+                            required(row, "password"),
+                            required(row, "fullName"),
+                            nullable(row.get("email")),
+                            nullable(row.get("phone")),
+                            nullable(row.get("city")),
+                            nullable(row.get("subCity")),
+                            nullable(row.get("wereda")),
+                            splitCsv(row.get("supervisedGradeCodes")),
+                            null
+                    );
+                    createSupervisor(authentication, req);
+                } else if ("CLUSTER_COORDINATOR".equals(roleType)) {
+                    User caller = requireCurrentUser(authentication);
+                    requireSuperAdmin(caller);
+                    throw new IllegalArgumentException("Cluster coordinator bulk import requires weredaId and is not supported in this template yet");
+                } else {
+                    throw new IllegalArgumentException("Unsupported roleType: " + roleType);
+                }
+                created++;
+            } catch (Exception e) {
+                errors.add(Map.of(
+                        "row", rowNum,
+                        "field", inferFieldFromMessage(e.getMessage()),
+                        "message", safeMessage(e)
+                ));
+            }
+        }
+        return new BulkImportResult(created, skipped, errors.size(), errors);
     }
 
     @GetMapping("/me")
@@ -493,5 +606,51 @@ public class UserController {
             return null;
         }
         return GradeCodes.sortForDisplay(n);
+    }
+
+    private ResponseEntity<byte[]> xlsxAttachment(String filename, byte[] content) {
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .body(content);
+    }
+
+    private String required(Map<String, String> row, String field) {
+        String value = row.getOrDefault(field, "").trim();
+        if (value.isEmpty()) throw new IllegalArgumentException(field + " is required");
+        return value;
+    }
+
+    private String nullable(String value) {
+        if (value == null) return null;
+        String t = value.trim();
+        return t.isEmpty() ? null : t;
+    }
+
+    private List<String> splitCsv(String csv) {
+        if (csv == null || csv.isBlank()) return List.of();
+        return java.util.Arrays.stream(csv.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .toList();
+    }
+
+    private String inferFieldFromMessage(String msg) {
+        if (msg == null) return "row";
+        String m = msg.toLowerCase();
+        if (m.contains("role")) return "roleType";
+        if (m.contains("username")) return "username";
+        if (m.contains("password")) return "password";
+        if (m.contains("full")) return "fullName";
+        if (m.contains("grade")) return "supervisedGradeCodes";
+        return "row";
+    }
+
+    private String safeMessage(Exception e) {
+        return (e.getMessage() == null || e.getMessage().isBlank()) ? "Invalid row data" : e.getMessage();
+    }
+
+    private String nullToEmpty(String v) {
+        return v == null ? "" : v;
     }
 }

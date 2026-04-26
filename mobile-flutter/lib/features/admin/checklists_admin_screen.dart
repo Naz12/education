@@ -27,6 +27,7 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
   String _newPurposeOptionId = '';
   String _newGradeGroupId = '';
   bool _newAutoAssignOnPublish = true;
+  final _newAutoAssignDueAt = TextEditingController();
 
   @override
   void initState() {
@@ -37,6 +38,7 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
   @override
   void dispose() {
     _newTitle.dispose();
+    _newAutoAssignDueAt.dispose();
     super.dispose();
   }
 
@@ -170,8 +172,14 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
         purposeOptionId: _newPurposeOptionId,
         gradeGroupId: _newGradeGroupId,
         autoAssignOnPublish: auto,
+        autoAssignDueAt: auto && _newAutoAssignDueAt.text.trim().isNotEmpty
+            ? DateTime.tryParse(_newAutoAssignDueAt.text.trim())
+                ?.toUtc()
+                .toIso8601String()
+            : null,
       );
       _newTitle.clear();
+      _newAutoAssignDueAt.clear();
       setState(() => _newAutoAssignOnPublish = true);
       await _load();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Checklist created')));
@@ -186,6 +194,9 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
     String purposeOpt = c['purposeOptionId']?.toString() ?? '';
     String gg = c['gradeGroupId']?.toString() ?? '';
     var autoAssign = c['autoAssignOnPublish'] != false;
+    final dueCtrl = TextEditingController(
+      text: (c['autoAssignDueAt']?.toString() ?? '').replaceFirst('Z', '').substring(0, ((c['autoAssignDueAt']?.toString() ?? '').length >= 16) ? 16 : (c['autoAssignDueAt']?.toString() ?? '').length),
+    );
     final id = c['id']?.toString() ?? '';
     await showDialog<void>(
       context: context,
@@ -251,6 +262,12 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
                         ? (v) => setD(() => autoAssign = v)
                         : null,
                   ),
+                  TextField(
+                    controller: dueCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Auto-assign due date (yyyy-MM-ddTHH:mm)',
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -267,6 +284,13 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
                       purposeOptionId: purposeOpt,
                       gradeGroupId: gg,
                       autoAssignOnPublish: _supportsAutoAssignRouting(rk2) ? autoAssign : false,
+                      autoAssignDueAt: _supportsAutoAssignRouting(rk2) &&
+                              autoAssign &&
+                              dueCtrl.text.trim().isNotEmpty
+                          ? DateTime.tryParse(dueCtrl.text.trim())
+                              ?.toUtc()
+                              .toIso8601String()
+                          : null,
                     );
                     if (ctx.mounted) Navigator.pop(ctx);
                     await _load();
@@ -456,6 +480,14 @@ class _ChecklistsAdminScreenState extends State<ChecklistsAdminScreen> {
                                                   ? (v) => setState(() => _newAutoAssignOnPublish = v)
                                                   : null;
                                             })(),
+                                          ),
+                                          TextField(
+                                            controller: _newAutoAssignDueAt,
+                                            decoration: const InputDecoration(
+                                              labelText: 'Auto-assign due date (yyyy-MM-ddTHH:mm)',
+                                              border: OutlineInputBorder(),
+                                              isDense: true,
+                                            ),
                                           ),
                                           const SizedBox(height: 8),
                                           FilledButton(onPressed: _createChecklist, child: const Text('Create checklist')),

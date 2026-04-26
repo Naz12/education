@@ -5,6 +5,7 @@ import com.school.supervision.modules.assignments.Assignment;
 import com.school.supervision.modules.assignments.AssignmentRepository;
 import com.school.supervision.modules.checklists.Checklist;
 import com.school.supervision.modules.checklists.ChecklistRepository;
+import com.school.supervision.modules.importexport.ExcelWorkbookService;
 import com.school.supervision.modules.organization.School;
 import com.school.supervision.modules.organization.SchoolRepository;
 import com.school.supervision.modules.organization.Teacher;
@@ -16,12 +17,17 @@ import com.school.supervision.modules.users.UserRepository;
 import com.school.supervision.modules.users.UserRoleChecks;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -35,6 +41,7 @@ public class SupervisionController {
     private final TeacherRepository teacherRepository;
     private final ChecklistRepository checklistRepository;
     private final SupervisionStatsService supervisionStatsService;
+    private final ExcelWorkbookService excelWorkbookService;
 
     public SupervisionController(UserRepository userRepository,
                                  AssignmentRepository assignmentRepository,
@@ -42,7 +49,8 @@ public class SupervisionController {
                                  SchoolRepository schoolRepository,
                                  TeacherRepository teacherRepository,
                                  ChecklistRepository checklistRepository,
-                                 SupervisionStatsService supervisionStatsService) {
+                                 SupervisionStatsService supervisionStatsService,
+                                 ExcelWorkbookService excelWorkbookService) {
         this.userRepository = userRepository;
         this.assignmentRepository = assignmentRepository;
         this.reviewRepository = reviewRepository;
@@ -50,6 +58,7 @@ public class SupervisionController {
         this.teacherRepository = teacherRepository;
         this.checklistRepository = checklistRepository;
         this.supervisionStatsService = supervisionStatsService;
+        this.excelWorkbookService = excelWorkbookService;
     }
 
     public record SupervisorSummaryResponse(
@@ -68,7 +77,9 @@ public class SupervisionController {
             UUID assignmentId,
             Instant startedAt,
             Instant completedAt,
+            Instant dueDate,
             String targetType,
+            String targetGradeCode,
             UUID schoolId,
             String schoolName,
             UUID teacherId,
@@ -137,6 +148,53 @@ public class SupervisionController {
         return reviews.stream().map(r -> toVisitDetail(r, orgId)).toList();
     }
 
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> export(Authentication authentication, @RequestParam(required = false) UUID supervisorId) {
+        User current = requireCurrentUser(authentication);
+        if (!UserRoleChecks.isAdminOrCoordinator(current)) {
+            throw new AccessDeniedException("Only SUPER_ADMIN or CLUSTER_COORDINATOR can export supervision data");
+        }
+        List<VisitDetailResponse> visits;
+        if (supervisorId != null) {
+            visits = supervisorVisits(authentication, supervisorId);
+        } else {
+            visits = supervisorSummaries(authentication).stream()
+                    .flatMap(s -> supervisorVisits(authentication, s.supervisorId()).stream())
+                    .toList();
+        }
+        List<String> headers = List.of(
+                "reviewId", "assignmentId", "supervisorId", "supervisorName",
+                "completedAt", "dueDate", "checklist", "targetType", "targetGrade",
+                "school", "teacher", "staff", "locationStatus", "distanceFromSchoolMeters"
+        );
+        UUID orgId = requireTenant();
+        List<List<String>> rows = visits.stream().map(v -> {
+            UUID supId = assignmentRepository.findByIdAndOrganizationId(v.assignmentId(), orgId).map(Assignment::getSupervisorId).orElse(null);
+            String supName = supId == null ? "" : userRepository.findByIdAndOrganizationId(supId, orgId).map(User::getFullName).orElse("");
+            return List.of(
+                    v.reviewId().toString(),
+                    v.assignmentId().toString(),
+                    supId == null ? "" : supId.toString(),
+                    supName,
+                    v.completedAt() == null ? "" : v.completedAt().toString(),
+                    v.dueDate() == null ? "" : v.dueDate().toString(),
+                    v.checklistTitle() == null ? "" : v.checklistTitle(),
+                    v.targetType() == null ? "" : v.targetType(),
+                    v.targetGradeCode() == null ? "" : v.targetGradeCode(),
+                    v.schoolName() == null ? "" : v.schoolName(),
+                    v.teacherName() == null ? "" : v.teacherName(),
+                    v.staffFullName() == null ? "" : v.staffFullName(),
+                    v.locationStatus() == null ? "" : v.locationStatus(),
+                    v.distanceFromSchoolMeters() == null ? "" : String.valueOf(v.distanceFromSchoolMeters())
+            );
+        }).toList();
+        byte[] bytes = excelWorkbookService.buildExport("activity", headers, rows);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"activity-export-" + LocalDate.now() + ".xlsx\"")
+                .body(bytes);
+    }
+
     private VisitDetailResponse toVisitDetail(Review review, UUID orgId) {
         Assignment assignment = assignmentRepository.findByIdAndOrganizationId(review.getAssignmentId(), orgId)
                 .orElseThrow(() -> new IllegalStateException("Assignment missing for review"));
@@ -167,7 +225,9 @@ public class SupervisionController {
                 assignment.getId(),
                 review.getStartedAt(),
                 review.getCompletedAt(),
+                assignment.getDueDate(),
                 assignment.getTargetType().name(),
+                assignment.getTargetGradeCode(),
                 assignment.getSchoolId(),
                 schoolName,
                 assignment.getTeacherId(),

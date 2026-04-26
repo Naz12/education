@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:open_file/open_file.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
 import '../../core/grades/grade_codes.dart';
 import '../../core/network/api_client.dart';
 import '../../core/widgets/grade_code_picker.dart';
@@ -39,6 +43,66 @@ class _SchoolsAdminScreenState extends State<SchoolsAdminScreen> {
       _error = ApiClient.messageFromError(e);
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _saveAndOpenXlsx(List<int> bytes, String filename) async {
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/$filename');
+    await file.writeAsBytes(bytes, flush: true);
+    await OpenFile.open(file.path);
+  }
+
+  Future<void> _downloadTemplate() async {
+    try {
+      final bytes = await ApiClient.downloadSchoolsTemplate();
+      await _saveAndOpenXlsx(bytes, 'schools-template.xlsx');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      }
+    }
+  }
+
+  Future<void> _exportSchools() async {
+    try {
+      final bytes = await ApiClient.downloadSchoolsExport(q: _filter.text.trim());
+      await _saveAndOpenXlsx(bytes, 'schools-export.xlsx');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      }
+    }
+  }
+
+  Future<void> _importSchools() async {
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['xlsx'],
+        withData: true,
+      );
+      final f = picked?.files.single;
+      if (f == null || f.bytes == null) return;
+      final result = await ApiClient.importSchools(
+        filename: f.name,
+        bytes: f.bytes!,
+      );
+      final created = result['created'] ?? 0;
+      final failed = result['failed'] ?? 0;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Import finished. Created: $created, Failed: $failed')),
+        );
+      }
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(ApiClient.messageFromError(e))));
+      }
     }
   }
 
@@ -148,6 +212,9 @@ class _SchoolsAdminScreenState extends State<SchoolsAdminScreen> {
         title: const Text('Schools'),
         actions: [
           IconButton(icon: const Icon(Icons.add), onPressed: () => _openSchoolForm()),
+          IconButton(icon: const Icon(Icons.file_download_outlined), tooltip: 'Download template', onPressed: _downloadTemplate),
+          IconButton(icon: const Icon(Icons.upload_file_outlined), tooltip: 'Import', onPressed: _importSchools),
+          IconButton(icon: const Icon(Icons.download_outlined), tooltip: 'Export', onPressed: _exportSchools),
           IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
         ],
       ),

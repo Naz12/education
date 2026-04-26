@@ -160,6 +160,7 @@ public class ReportService {
                 review.getStartedAt(),
                 review.getCompletedAt(),
                 assignment.getTargetType().name(),
+                assignment.getTargetGradeCode(),
                 assignment.getSchoolId(),
                 schoolName,
                 assignment.getTeacherId(),
@@ -249,6 +250,7 @@ public class ReportService {
             addSummaryRow(summaryTable, "Director", displayUser(directorUser), labelFont, bodyFont);
             addSummaryRow(summaryTable, "Checklist", displayChecklist(checklist, checklistVersion), labelFont, bodyFont);
             addSummaryRow(summaryTable, "Target", displayTarget(assignment, school, teacher, staffUser), labelFont, bodyFont);
+            addSummaryRow(summaryTable, "Target grade", assignment.getTargetGradeCode(), labelFont, bodyFont);
             addSummaryRow(summaryTable, "Started", formatInstant(review.getStartedAt()), labelFont, bodyFont);
             addSummaryRow(summaryTable, "Completed", formatInstant(review.getCompletedAt()), labelFont, bodyFont);
             addSummaryRow(summaryTable, "Location check", displayLocation(review), labelFont, bodyFont);
